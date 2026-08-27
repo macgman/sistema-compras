@@ -1,0 +1,3782 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COMPRA Pro - Sistema Integral de Inventario y Compras Multi-Usuario</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- PeerJS para conexion WebRTC en tiempo real entre computadoras -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --primary: #059669; --primary-dark: #047857; --secondary: #10b981; --danger: #ef4444; --warning: #f59e0b;
+    --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #1e293b; --text-light: #64748b; --sidebar-w: 250px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+
+  /* SIDEBAR */
+  #sidebar { width: var(--sidebar-w); background: #064e3b; color: #fff; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100; box-shadow: 2px 0 12px rgba(0,0,0,0.18); }
+  #sidebar .logo { padding: 22px 20px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+  #sidebar .logo h1 { font-size: 1.35rem; font-weight: 800; color: #6ee7b7; display: flex; align-items: center; gap: 10px; }
+  #sidebar .logo-sub { font-size: 0.72rem; color: #a7f3d0; margin-top: 5px; display: flex; align-items: center; gap: 6px; }
+  #sidebar nav { flex: 1; padding: 14px 0; overflow-y: auto; }
+  #sidebar nav a { display: flex; align-items: center; gap: 12px; padding: 12px 20px; color: #a7f3d0; text-decoration: none; font-size: 0.92rem; cursor: pointer; transition: all 0.2s; border-left: 4px solid transparent; font-weight: 500; }
+  #sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  #sidebar nav a.active { background: rgba(110,231,183,0.15); color: #6ee7b7; border-left-color: #34d399; font-weight: 700; }
+  #sidebar .user-info { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.28); }
+  .role-badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; margin-bottom: 5px; }
+  .role-admin { background: #ef4444; color: #fff; }
+  .role-user { background: #059669; color: #fff; }
+
+  /* TOPBAR Y CLOUD BADGE */
+  #main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; min-height: 100vh; width: calc(100% - var(--sidebar-w)); }
+  #topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 30px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+  #topbar h2 { font-size: 1.25rem; font-weight: 800; color: #064e3b; display: flex; align-items: center; gap: 8px; }
+  #content { padding: 28px 30px; flex: 1; }
+
+  .cloud-status { display: flex; align-items: center; gap: 8px; font-size: 0.76rem; font-weight: 700; padding: 6px 14px; border-radius: 999px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; cursor: pointer; transition: all 0.2s; }
+  .cloud-status:hover { background: #d1fae5; }
+  .cloud-dot { width: 9px; height: 9px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.3); animation: pulse 2s infinite; }
+  .cloud-dot.connecting { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.3); }
+  .cloud-dot.offline { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.3); animation: none; }
+  @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16,185,129,0.6); } 70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16,185,129,0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 28px; }
+  .stat-card { background: var(--card); border-radius: 14px; padding: 22px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
+  .stat-card .label { font-size: 0.78rem; color: var(--text-light); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+  .stat-card .value { font-size: 2.1rem; font-weight: 800; color: #0f172a; line-height: 1.1; }
+
+  /* TOOLBAR */
+  .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 22px; }
+  .search-box { position: relative; flex: 1; min-width: 240px; }
+  .search-box input { width: 100%; padding: 10px 15px 10px 42px; border: 1px solid var(--border); border-radius: 10px; outline: none; font-size: 0.92rem; background: #fff; }
+  .search-box input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(5,150,105,0.12); }
+  .search-box i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-light); }
+  select, input[type="date"] { padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; outline: none; font-size: 0.9rem; font-weight: 600; color: var(--text); font-family: inherit; }
+  select:focus, input[type="date"]:focus { border-color: var(--primary); }
+
+  /* BUTTONS */
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 700; transition: all 0.2s; font-family: inherit; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary, .btn-success { background: var(--primary); color: #fff; }
+  .btn-primary:hover, .btn-success:hover { background: var(--primary-dark); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-outline { background: #fff; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: #f1f5f9; border-color: #cbd5e1; }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 7px; }
+  .btn-warning { background: var(--warning); color: #fff; }
+  .btn-entry { background: #0284c7; color: #fff; }
+  .btn-entry:hover { background: #0369a1; }
+
+  /* TABLE */
+  .table-wrap { background: var(--card); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: #f8fafc; padding: 14px 16px; text-align: left; font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; border-bottom: 1px solid var(--border); letter-spacing: 0.04em; }
+  tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.12s; }
+  tbody tr:hover { background: #f8fafc; }
+  tbody td { padding: 14px 16px; font-size: 0.9rem; vertical-align: middle; }
+  .clave-cell { font-family: 'Courier New', monospace; font-weight: 800; font-size: 1.05rem; color: #064e3b; background: #ecfdf5; padding: 4px 8px; border-radius: 6px; border: 1px solid #a7f3d0; }
+
+  /* BADGES */
+  .badge { padding: 4px 10px; border-radius: 9999px; font-size: 0.74rem; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; }
+  .badge-ok { background: #dcfce7; color: #15803d; }
+  .badge-low { background: #fef3c7; color: #92400e; }
+  .badge-critical { background: #fee2e2; color: #b91c1c; }
+  .badge-edit { background: #ede9fe; color: #6d28d9; }
+  .badge-zero { background: #f1f5f9; color: #475569; }
+  .badge-blocked { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge-unlocked { background: #dcfce7; color: #15803d; }
+  tr.product-blocked { background: #fff7f7; }
+
+  .entry-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .entry-summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 14px; }
+  .entry-summary-card span { display: block; color: #166534; font-size: .72rem; font-weight: 800; text-transform: uppercase; margin-bottom: 5px; }
+  .entry-summary-card strong { display: block; color: #064e3b; font-size: 1.15rem; word-break: break-word; }
+  .stock-readonly-note { margin-top: 6px; color: #0284c7; font-size: .76rem; font-weight: 700; line-height: 1.35; }
+
+  /* MODALS */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--card); border-radius: 18px; padding: 32px; width: 90%; max-width: 660px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .close-btn { background: none; border: none; font-size: 1.6rem; cursor: pointer; color: var(--text-light); }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group.full { grid-column: 1 / -1; }
+  .form-group label { font-size: 0.82rem; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.03em; }
+  .form-group input, .form-group select, .form-group textarea { padding: 11px 13px; border: 1px solid var(--border); border-radius: 9px; outline: none; font-size: 0.95rem; font-family: inherit; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(5,150,105,0.12); }
+
+  /* COMPRAS PANEL */
+  .venta-card { background: #fff; border-radius: 16px; border: 1px solid var(--border); padding: 24px; max-width: 1500px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+  .venta-form-compact { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); gap: 14px 20px; margin-bottom: 18px; }
+  .venta-form-compact .form-group.full { grid-column: 1 / -1; }
+  .venta-items-panel { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: min(54vh, 560px); min-height: 210px; background: #fff; }
+  .venta-empty { padding: 32px; text-align: center; color: #94a3b8; font-weight: 700; }
+  .venta-row { display: grid; grid-template-columns: minmax(360px, 3fr) 105px 92px 120px 130px 44px; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); align-items: center; }
+  .venta-row.venta-head { position: sticky; top: 0; z-index: 3; background: #f0fdf4; color: #166534; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; box-shadow: 0 1px 0 var(--border); }
+  .venta-product-name { font-weight: 800; color: #1e293b; line-height: 1.25; font-size: 0.88rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .venta-product-key { color: #047857; font-weight: 700; font-size: 0.78rem; margin-top: 3px; display: inline-block; background: #ecfdf5; padding: 1px 5px; border-radius: 4px; }
+  .venta-unit-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; padding: 5px 9px; border-radius: 999px; background: #ecfdf5; color: #065f46; font-size: 0.70rem; font-weight: 800; text-transform: uppercase; border: 1px solid #a7f3d0; }
+  .venta-qty-input { width: 68px; height: 34px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-weight: 800; text-align: center; font-size: 0.95rem; }
+  .venta-money { font-weight: 800; color: #0f172a; font-size: 0.88rem; white-space: nowrap; }
+  .venta-total-bar { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-top: 18px; padding: 16px 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 14px; }
+  .venta-summary { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .venta-count { color: #065f46; font-size: 0.85rem; font-weight: 800; text-transform: uppercase; }
+  .venta-total-label { font-size: 0.78rem; color: #047857; font-weight: 800; text-transform: uppercase; }
+  #venta-total-val { font-size: 1.85rem; font-weight: 900; color: #064e3b; line-height: 1; }
+
+  /* VOUCHER / DETALLE FORMATO EXCEL */
+  .sale-detail-modal { width: 96vw; max-width: 1200px !important; padding: 24px; }
+  .sale-detail-modal #print-area { color: #000; }
+  .detail-doc { background: #fff; font-family: 'Segoe UI', Arial, sans-serif; }
+  .detail-header-card { border: 1.5px solid #000; padding: 12px 16px; margin-bottom: 12px; display: grid; grid-template-columns: 1.2fr 1fr 0.8fr; gap: 8px 16px; font-size: 0.9rem; }
+  .detail-header-card p { margin: 0; line-height: 1.35; }
+  .detail-table-wrap { border: 1.5px solid #000; overflow: auto; max-height: 64vh; }
+  .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.82rem; color: #000; }
+  .detail-table th, .detail-table td { border: 1px solid #000; padding: 5px 6px; vertical-align: middle; }
+  .detail-table thead th { background: #f8fafc; color: #000; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; text-align: center; }
+  .col-clave { width: 120px; text-align: center; font-weight: 700; word-break: break-word; }
+  .col-desc { width: 34%; text-align: left; line-height: 1.25; }
+  .col-consumo { width: 95px; text-align: center; }
+  .col-qty { width: 62px; text-align: center; font-weight: 800; }
+  .col-unidad { width: 80px; text-align: center; text-transform: uppercase; }
+  .col-precio { width: 95px; text-align: right; white-space: nowrap; }
+  .col-importe { width: 105px; text-align: right; white-space: nowrap; }
+
+  /* AUTOCOMPLETE */
+  .ac-container { position: relative; width: 100%; }
+  .ac-results { position: absolute; bottom: calc(100% + 10px); left: 0; right: 0; background: #ffffff; border: 2px solid var(--primary); border-radius: 12px; max-height: 350px; overflow-y: auto; z-index: 1000; box-shadow: 0 -15px 40px rgba(5, 150, 105, 0.2); }
+  .ac-item { padding: 14px 20px; cursor: pointer; border-bottom: 1px solid var(--border); transition: all 0.2s ease; position: relative; }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover { background: #ecfdf5; padding-left: 26px; }
+  .ac-item:hover::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--primary); }
+  .ac-item.out-of-stock { background: #fef2f2; border-left: 4px solid #ef4444; opacity: 0.8; }
+
+  /* LOGIN MULTI-USUARIO */
+  #login-overlay { position: fixed; inset: 0; background: #064e3b; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  .login-card { background: #fff; padding: 45px 35px; border-radius: 24px; width: 420px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+  .login-input { width: 100%; padding: 13px 16px; border: 1.5px solid #064e3b; border-radius: 10px; font-size: 1rem; text-align: left; font-weight: 600; color: #064e3b; outline: none; transition: border-color 0.2s; }
+  .login-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(5,150,105,0.18); }
+  .login-input::-ms-reveal, .login-input::-ms-clear { display: none !important; }
+
+  /* PRINT */
+  @media print {
+    body * { visibility: hidden; }
+    #print-area, #print-area * { visibility: visible; }
+    #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    @page { size: landscape; margin: 8mm; }
+    .detail-table-wrap { overflow: visible !important; max-height: none !important; border: 1.5px solid #000 !important; }
+    .detail-table { font-size: 9px !important; }
+    .detail-table th, .detail-table td { padding: 3px 4px !important; }
+    .no-print { display: none !important; }
+  }
+
+  /* PAGINACION */
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 20px 10px 8px; }
+  .pagination button { min-width: 42px; height: 42px; padding: 0 14px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: #1e293b; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: all 0.18s ease; }
+  .pagination button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .pagination .page-info { margin: 0 8px; padding: 10px 14px; border-radius: 999px; background: #ecfdf5; color: #065f46; font-size: 0.85rem; font-weight: 800; }
+
+  #toast { position: fixed; bottom: 30px; right: 30px; z-index: 1000; padding: 16px 24px; border-radius: 12px; color: #fff; font-weight: 700; transform: translateY(100px); opacity: 0; transition: all 0.3s; box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  .toast-success { background: #059669; } .toast-error { background: #ef4444; } .toast-warning { background: var(--warning); color: #fff; }
+
+  .admin-only { display: none !important; }
+  body.is-admin .admin-only { display: block !important; }
+  body.is-admin .admin-inline { display: inline-flex !important; }
+
+  /* REPORTES */
+  .report-modal { max-width: 860px; padding: 0; overflow: hidden; }
+  .report-modal .modal-header { margin: 0; padding: 22px 26px; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 68%); }
+  .report-modal-body { padding: 24px 26px 26px; }
+  .report-intro { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 14px; margin-bottom: 20px; }
+  .report-intro-icon { width: 42px; height: 42px; flex: 0 0 42px; display: grid; place-items: center; border-radius: 12px; background: #059669; color: #fff; font-size: 1.15rem; }
+  .report-intro h4 { margin: 0 0 4px; font-size: 1rem; color: #064e3b; }
+  .report-intro p { margin: 0; color: #334155; font-size: .86rem; line-height: 1.45; }
+  .report-grid { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: 16px; }
+  .report-field { display: flex; flex-direction: column; gap: 7px; }
+  .report-field label { color: #475569; font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+  .report-field select, .report-field input { width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #fff; color: #0f172a; font-weight: 650; outline: none; }
+  .report-field select:focus, .report-field input:focus { border-color: #34d399; box-shadow: 0 0 0 3px rgba(5,150,105,.12); }
+  .report-help { margin-top: 10px; min-height: 38px; padding: 10px 12px; border-radius: 10px; background: #f8fafc; color: #64748b; font-size: .82rem; line-height: 1.4; }
+  .report-quick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .report-quick button { border: 1px solid var(--border); background: #fff; color: #475569; border-radius: 999px; padding: 7px 12px; cursor: pointer; font-weight: 750; font-size: .78rem; }
+  .report-quick button:hover { border-color: #34d399; color: #059669; background: #ecfdf5; }
+  .report-preview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
+  .report-kpi { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: #fff; }
+  .report-kpi span { display: block; color: #64748b; font-size: .72rem; font-weight: 800; text-transform: uppercase; margin-bottom: 5px; }
+  .report-kpi strong { display: block; color: #064e3b; font-size: 1.15rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; }
+  .report-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+  .report-actions-note { color: #64748b; font-size: .78rem; max-width: 430px; line-height: 1.4; }
+  .report-actions-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* TARJETAS NUBE, RED Y USUARIOS */
+  .net-grid-card { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .net-box { background: #fff; border-radius: 16px; border: 1px solid var(--border); padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .net-box-title { font-size: 1.18rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .net-box-sub { color: #64748b; font-size: 0.88rem; margin-bottom: 20px; }
+  .net-instruction-box { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 18px 20px; margin-bottom: 22px; }
+  .net-instruction-header { color: #065f46; font-size: 0.92rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .net-steps-list { list-style: none; font-size: 0.85rem; color: #047857; line-height: 1.6; }
+  .net-steps-list li { margin-bottom: 6px; }
+  .net-room-field { margin-bottom: 20px; }
+  .net-room-field label { display: block; font-size: 0.80rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.04em; }
+  .net-room-input { width: 100%; padding: 14px 16px; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 1.05rem; font-weight: 700; color: #0f172a; outline: none; transition: border 0.2s; }
+  .net-room-input:focus { border-color: var(--primary); }
+  @media (max-width: 960px) { .net-grid-card { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<!-- LOGIN MULTI-USUARIO -->
+<div id="login-overlay">
+  <div class="login-card">
+    <div style="font-size: 3.5rem; color: #059669; margin-bottom: 10px; line-height: 1;">
+      <i class="fas fa-boxes-stacked"></i>
+    </div>
+    <h2 style="color: #064e3b; font-weight: 800; font-size: 1.6rem; margin-bottom: 4px;">COMPRA Pro</h2>
+    <p style="color: #64748b; margin-bottom: 22px; font-size: 0.88rem;">Control de Inventario y Red Multi-Usuario</p>
+    
+    <div style="margin-bottom: 14px; text-align: left;">
+      <label style="font-size: 0.76rem; font-weight: 800; color: #475569; text-transform: uppercase;">Usuario</label>
+      <input type="text" id="login-user" class="login-input" placeholder="Ej. admin o operador" autocomplete="username" style="margin-top: 4px;">
+    </div>
+
+    <div style="margin-bottom: 22px; text-align: left;">
+      <label style="font-size: 0.76rem; font-weight: 800; color: #475569; text-transform: uppercase;">Contrase&ntilde;a</label>
+      <div style="position: relative; margin-top: 4px;">
+        <input type="password" id="login-pass" class="login-input" placeholder="••••••••" style="padding-right: 45px;">
+        <span onclick="togglePasswordVisibility()" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #064e3b; font-size: 1.15rem;">
+          <i class="fas fa-eye-slash" id="toggle-icon"></i>
+        </span>
+      </div>
+    </div>
+    
+    <button type="button" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 13px; font-size: 1rem;" onclick="attemptLoginMulti()">
+      <i class="fas fa-sign-in-alt"></i> Iniciar Sesi&oacute;n
+    </button>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<div id="sidebar" class="no-print">
+  <div class="logo">
+    <h1><i class="fas fa-boxes-stacked"></i> COMPRA</h1>
+    <div class="logo-sub"><i class="fas fa-globe"></i> Red en Tiempo Real</div>
+  </div>
+  <nav>
+    <a class="active" onclick="showSection('dashboard')" id="nav-dashboard"><i class="fas fa-chart-pie"></i><span>Dashboard</span></a>
+    <a onclick="showSection('inventario')" id="nav-inventario"><i class="fas fa-box-open"></i><span>Inventario</span></a>
+    <a onclick="showSection('inv-fisico')" id="nav-inv-fisico" class="admin-only"><i class="fas fa-clipboard-check"></i><span>Inv. F&iacute;sico</span></a>
+    <a onclick="showSection('ventas')" id="nav-ventas"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
+    <a onclick="showSection('historial-ventas')" id="nav-historial-ventas"><i class="fas fa-history"></i><span>Historial Compras</span></a>
+    <a onclick="showSection('ventas-material')" id="nav-ventas-material"><i class="fas fa-chart-line"></i><span>Ventas por Material</span></a>
+    <a onclick="showSection('movimientos')" id="nav-movimientos"><i class="fas fa-exchange-alt"></i><span>Movimientos</span></a>
+    <a onclick="showSection('kardex')" id="nav-kardex"><i class="fas fa-list-alt"></i><span>Kardex</span></a>
+    <a onclick="showSection('config')" id="nav-config" class="admin-only"><i class="fas fa-users-cog"></i><span>Usuarios y Red</span></a>
+  </nav>
+  <div class="user-info">
+    <div id="role-tag" class="role-badge"></div>
+    <div style="font-size: 0.85rem; font-weight: 700;" id="user-display"></div>
+    <a onclick="logout()" style="font-size: 0.75rem; color: #a7f3d0; cursor: pointer; display: block; margin-top: 8px;"><i class="fas fa-sign-out-alt"></i> Salir</a>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="topbar" class="no-print">
+    <h2 id="page-title"><i class="fas fa-chart-pie"></i> Dashboard</h2>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="cloud-status" id="cloud-status-badge" onclick="reconnectCloud()" title="Clic para reconectar red">
+        <div class="cloud-dot" id="cloud-dot"></div>
+        <span id="cloud-status-text">Conectando...</span>
+      </div>
+      <div id="folio-display" style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 6px 14px; border-radius: 8px; font-weight: 800; color: #065f46;">
+        <i class="fas fa-hashtag"></i> Folio: <span id="folio-val">---</span>
+        <button class="admin-only" onclick="openFolioModal()" style="background:none; border:none; cursor:pointer; color:#059669; margin-left:6px;"><i class="fas fa-edit"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="content">
+    <!-- DASHBOARD -->
+    <div id="section-dashboard" class="section active">
+      <div id="stats-grid" class="stats-grid"></div>
+      <div class="table-wrap">
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--border); font-weight: 800; color: #991b1b; background: #fff5f5;"><i class="fas fa-exclamation-triangle" style="color: #ef4444; margin-right: 6px;"></i> Stock Cr&iacute;tico (&le; 5)</div>
+        <table><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>Unidad</th><th>Stock</th></tr></thead><tbody id="dash-critical-tbody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- INVENTARIO -->
+    <div id="section-inventario" class="section" style="display:none;">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="inv-search" placeholder="Buscar por clave, factura o nombre..." oninput="filterInventario()"></div>
+        <button class="btn btn-outline" onclick="openScannerModal('inv')" title="Escanear Codigo de Barras o QR"><i class="fas fa-barcode"></i> Escanear</button>
+        <select id="inv-stock-filter" onchange="filterInventario()">
+          <option value="all">Todos los materiales</option>
+          <option value="nonzero">Solo con stock (&gt; 0)</option>
+          <option value="zero">Solo Agotados (0)</option>
+          <option value="lt5">Menos de 5</option>
+          <option value="lt10">Menos de 10</option>
+          <option value="gt10">M&aacute;s de 10</option>
+          <option value="gt20">M&aacute;s de 20</option>
+          <option value="gt50">M&aacute;s de 50</option>
+        </select>
+        <select id="inv-sort" onchange="filterInventario()">
+          <option value="default">Organizar: sin orden</option>
+          <option value="nombre-az">Nombre A-Z</option>
+          <option value="nombre-za">Nombre Z-A</option>
+          <option value="clave-az">Clave A-Z</option>
+          <option value="clave-za">Clave Z-A</option>
+          <option value="stock-asc">Stock menor a mayor</option>
+          <option value="stock-desc">Stock mayor a menor</option>
+          <option value="precio-asc">Precio menor a mayor</option>
+          <option value="precio-desc">Precio mayor a menor</option>
+        </select>
+        <button class="btn btn-outline" onclick="refreshStock()"><i class="fas fa-sync-alt"></i> Refrescar</button>
+        <button class="btn btn-primary admin-only" onclick="openProductModal()"><i class="fas fa-plus"></i> Nuevo Material</button>
+        <input type="file" id="bulk-excel-input" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importBulkExcel(this)">
+        <button class="btn btn-outline admin-only" onclick="document.getElementById('bulk-excel-input').click()"><i class="fas fa-file-import"></i> Carga Masiva Excel</button>
+        <button class="btn btn-success" onclick="openReportModal()"><i class="fas fa-chart-column"></i> Reportes Excel</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>Unidad</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="admin-only">Acciones</th></tr></thead><tbody id="inv-tbody"></tbody></table>
+      </div>
+      <div class="pagination" id="inv-pagination"></div>
+    </div>
+
+    <!-- INVENTARIO FÍSICO -->
+    <div id="section-inv-fisico" class="section" style="display:none;">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="if-search" placeholder="Buscar material para conteo..." oninput="filterInvFisico()"></div>
+        <button class="btn btn-outline" onclick="openScannerModal('inv-fisico')" title="Escanear"><i class="fas fa-barcode"></i> Escanear</button>
+        <select id="if-sort" onchange="filterInvFisico()" title="Organizar inventario fisico">
+          <option value="default">Organizar: sin orden</option>
+          <option value="nombre-az">Nombre A-Z</option>
+          <option value="nombre-za">Nombre Z-A</option>
+          <option value="clave-az">Clave A-Z</option>
+          <option value="clave-za">Clave Z-A</option>
+          <option value="stock-asc">Stock menor a mayor</option>
+          <option value="stock-desc">Stock mayor a menor</option>
+        </select>
+        <button class="btn btn-primary" onclick="applyInvFisico()"><i class="fas fa-check-double"></i> Aplicar Cambios</button>
+        <button class="btn btn-outline" onclick="resetInvFisico()"><i class="fas fa-redo"></i> Reiniciar Conteo</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>En Sistema</th><th>F&iacute;sico</th><th>Dif.</th></tr></thead><tbody id="if-tbody"></tbody></table>
+      </div>
+      <div class="pagination" id="if-pagination"></div>
+    </div>
+
+    <!-- NUEVA COMPRA -->
+    <div id="section-ventas" class="section" style="display:none;">
+      <div class="venta-card">
+        <div class="venta-form-compact">
+          <div class="form-group"><label>Folio Compra</label><input type="text" id="venta-folio-input"></div>
+          <div class="form-group"><label>Fecha</label><input type="date" id="venta-fecha"></div>
+          <div class="form-group full"><label>Proveedor / Solicitante / Cliente</label><input type="text" id="venta-cliente" placeholder="Nombre completo o instituci&oacute;n"></div>
+        </div>
+        <div id="venta-items-list" class="venta-items-panel"></div>
+        <div class="ac-container" style="display: flex; gap: 8px;">
+          <div class="ac-results" id="venta-ac-list" style="display:none;"></div>
+          <div class="search-box"><i class="fas fa-search"></i><input type="text" id="venta-search-prod" placeholder="Buscar y agregar material..." oninput="searchVentaProduct()" autocomplete="off"></div>
+          <button class="btn btn-outline" onclick="openScannerModal('venta')" title="Escanear Codigo de Barras / QR con Camara"><i class="fas fa-barcode"></i> Escanear</button>
+        </div>
+        <div class="venta-total-bar">
+          <div class="venta-summary">
+            <div><div class="venta-total-label">TOTAL</div><div id="venta-total-val">$0.00</div></div>
+            <div class="venta-count" id="venta-count-val">0 art&iacute;culos</div>
+          </div>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
+            <button class="btn btn-outline" onclick="clearVenta()">Limpiar</button>
+            <button class="btn btn-primary" id="venta-save-btn" onclick="saveVenta()"><i class="fas fa-shopping-cart"></i> Finalizar Compra</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORIAL COMPRAS -->
+    <div id="section-historial-ventas" class="section" style="display:none;">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="hv-search" placeholder="Buscar por folio o solicitante..." oninput="filterHistorialVentas()"></div>
+        <select id="hv-sort" onchange="filterHistorialVentas()" title="Organizar Historial de Compras">
+          <option value="reciente">Fecha: M&aacute;s reciente primero</option>
+          <option value="antiguo">Fecha: M&aacute;s antiguo primero</option>
+          <option value="total-desc">Total: Mayor a menor</option>
+          <option value="total-asc">Total: Menor a mayor</option>
+        </select>
+        <button class="btn btn-success" onclick="openReportModal('sold')"><i class="fas fa-file-excel"></i> Exportar Compras</button>
+      </div>
+      <div id="hv-list"></div>
+    </div>
+
+    <!-- VENTAS POR MATERIAL (CON RANGO DE FECHAS) -->
+    <div id="section-ventas-material" class="section" style="display:none;">
+      <div class="toolbar" style="gap: 10px;">
+        <div class="search-box" style="max-width: 280px;">
+          <i class="fas fa-search"></i>
+          <input type="text" id="vm-search" placeholder="Filtrar por código, descr. o ref..." oninput="filterVentasMaterialDropdown()">
+        </div>
+        <select id="vm-product-select" onchange="renderVentasMaterial()" style="flex: 1.5; min-width: 260px;"></select>
+        <select id="vm-period-filter" onchange="onVentasMaterialPeriodChange()" style="min-width: 170px;">
+          <option value="all">Todo el Historial</option>
+          <option value="month">Este Mes</option>
+          <option value="current-year">A&ntilde;o Actual (2026)</option>
+          <option value="last-12">&Uacute;ltimos 12 meses</option>
+          <option value="custom">Rango Personalizado</option>
+        </select>
+        <div id="vm-custom-dates" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <label style="font-size:0.75rem; font-weight:800; color:#475569;">DESDE:</label>
+          <input type="date" id="vm-date-from" onchange="renderVentasMaterial()">
+          <label style="font-size:0.75rem; font-weight:800; color:#475569;">HASTA:</label>
+          <input type="date" id="vm-date-to" onchange="renderVentasMaterial()">
+        </div>
+        <button class="btn btn-outline" onclick="openScannerModal('vm')" title="Escanear material con camara"><i class="fas fa-barcode"></i> Escanear</button>
+        <button class="btn btn-success" onclick="exportVentasMaterialExcel()"><i class="fas fa-file-excel"></i> Exportar a Excel</button>
+      </div>
+
+      <div id="vm-kpi-grid" class="stats-grid"></div>
+
+      <div class="net-grid-card" style="margin-bottom: 24px;">
+        <!-- Resumen Mes a Mes -->
+        <div class="table-wrap">
+          <div style="padding: 16px 20px; font-weight: 800; color: #064e3b; background: #ecfdf5; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fas fa-calendar-alt"></i> Salidas Totales por Mes</span>
+            <span id="vm-badge-clave" class="clave-cell" style="font-size:0.8rem;">—</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Mes / Periodo</th>
+                <th>Compras (Folios)</th>
+                <th>Piezas Surtidas</th>
+                <th>Total Salidas ($)</th>
+              </tr>
+            </thead>
+            <tbody id="vm-monthly-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Top Solicitantes -->
+        <div class="table-wrap">
+          <div style="padding: 16px 20px; font-weight: 800; color: #064e3b; background: #ecfdf5; border-bottom: 1px solid var(--border);">
+            <i class="fas fa-hospital-user"></i> &Aacute;reas y Solicitantes
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Solicitante / &Aacute;rea</th>
+                <th>Folios</th>
+                <th>Piezas</th>
+                <th>Importe ($)</th>
+              </tr>
+            </thead>
+            <tbody id="vm-clientes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Detalle historico de salidas del material -->
+      <div class="table-wrap">
+        <div style="padding: 16px 20px; font-weight: 800; color: #064e3b; background: #f8fafc; border-bottom: 1px solid var(--border);">
+          <i class="fas fa-list-check"></i> Desglose Detallado de Compras del Material
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Folio</th>
+              <th>Solicitante / Destino</th>
+              <th>Piezas</th>
+              <th>Precio Unit.</th>
+              <th>Total Importe</th>
+            </tr>
+          </thead>
+          <tbody id="vm-detail-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MOVIMIENTOS -->
+    <div id="section-movimientos" class="section" style="display:none;">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="mov-search" placeholder="Buscar por material, solicitante, folio o clave..." oninput="renderMovimientos()"></div>
+        <select id="mov-type-filter" onchange="renderMovimientos()">
+          <option value="all">Todos los tipos</option>
+          <option value="ENTRADA">Entradas</option>
+          <option value="SALIDA">Salidas</option>
+          <option value="MODIFICADA">Modificadas</option>
+        </select>
+        <select id="mov-sort" onchange="renderMovimientos()" title="Organizar Movimientos">
+          <option value="reciente">Fecha: M&aacute;s reciente primero</option>
+          <option value="antiguo">Fecha: M&aacute;s antiguo primero</option>
+          <option value="qty-desc">Cantidad: Mayor a menor</option>
+          <option value="qty-asc">Cantidad: Menor a mayor</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Clave</th><th>Material</th><th>Solicitante / Folio</th><th>Cant.</th><th>Usuario</th><th class="admin-only">Acciones</th></tr></thead><tbody id="mov-tbody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- KARDEX -->
+    <div id="section-kardex" class="section" style="display:none;">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="kardex-search" placeholder="Buscar por folio, factura, clave o descripci&oacute;n..." oninput="renderKardex()"></div>
+        <select id="kardex-sort" onchange="renderKardex()" title="Organizar Kardex">
+          <option value="reciente">Fecha: M&aacute;s reciente primero</option>
+          <option value="antiguo">Fecha: M&aacute;s antiguo primero</option>
+        </select>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Folio / Factura</th><th>Tipo</th><th>Clave</th><th>Material</th><th>Cant.</th><th>Usuario</th></tr></thead><tbody id="kardex-tbody"></tbody></table></div>
+    </div>
+
+    <!-- GESTIÓN DE USUARIOS, RED Y SEGURIDAD -->
+    <div id="section-config" class="section" style="display:none;">
+      <!-- Tarjeta de Administracion de Usuarios -->
+      <div class="net-box" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <div class="net-box-title"><i class="fas fa-users" style="color: #059669;"></i> Administraci&oacute;n de Cuentas y Accesos Cifrados</div>
+            <div class="net-box-sub" style="margin-bottom:0;">Cuentas protegidas con Hash Criptogr&aacute;fico SHA-256 (Web Crypto API).</div>
+          </div>
+          <button class="btn btn-primary" onclick="openUserModal()"><i class="fas fa-user-plus"></i> Nuevo Usuario</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Nombre Completo</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="net-grid-card">
+        <!-- Conexion en Red WebRTC -->
+        <div class="net-box">
+          <div class="net-box-title"><i class="fas fa-globe" style="color: #059669;"></i> Conexi&oacute;n en L&iacute;nea entre Computadoras</div>
+          <div class="net-box-sub">Sincronizaci&oacute;n robusta con auto-reconexi&oacute;n y detecci&oacute;n de pares.</div>
+
+          <div class="net-instruction-box">
+            <div class="net-instruction-header"><i class="fas fa-check-circle"></i> Pasos para conectar dos o m&aacute;s computadoras:</div>
+            <ol class="net-steps-list">
+              <li><strong>1.</strong> Abra este archivo en la <strong>Computadora 1</strong> y en la <strong>Computadora 2</strong>.</li>
+              <li><strong>2.</strong> En ambas computadoras escriba exactamente la misma <strong>Clave de Sala</strong> abajo (ejemplo: <code>comprasissste</code>) y haga clic en <strong>Conectar Sala</strong>.</li>
+              <li><strong>3.</strong> Ver&aacute; el indicador arriba: <span id="net-inline-status" style="font-weight:700; color:#065f46;"><i class="fas fa-circle" style="color:#94a3b8; font-size:0.75rem;"></i> Sin Conectar</span>.</li>
+              <li><strong>4.</strong> &iexcl;Listo! Cualquier movimiento y usuario se sincroniza en vivo al instante.</li>
+            </ol>
+          </div>
+
+          <div class="net-room-field">
+            <label>CLAVE DE SALA COMPARTIDA</label>
+            <input type="text" id="cloud-room-input" class="net-room-input" placeholder="Ejemplo: comprasissste">
+          </div>
+
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="saveCloudRoom()"><i class="fas fa-plug"></i> Conectar Sala</button>
+            <button class="btn btn-outline" onclick="broadcastFullSync()"><i class="fas fa-sync-alt"></i> Forzar Env&iacute;o de Datos</button>
+          </div>
+        </div>
+
+        <!-- Seguridad y Respaldo -->
+        <div class="net-box">
+          <div class="net-box-title"><i class="fas fa-shield-alt" style="color: #059669;"></i> Respaldos del Sistema</div>
+          <div class="net-box-sub">Base de datos local en IndexedDB sin l&iacute;mites de almacenamiento.</div>
+
+          <button class="btn btn-success" style="width:100%; margin-bottom:14px; justify-content:center; padding: 13px;" onclick="exportBackup()"><i class="fas fa-download"></i> Descargar Respaldo Total (.json)</button>
+          <div style="background:#f8fafc; border:1px dashed var(--border); border-radius:12px; padding:16px; text-align:center;">
+            <input type="file" id="backup-file" style="display:none;" onchange="importBackup(this)">
+            <button class="btn btn-outline" style="width:100%; justify-content:center;" onclick="document.getElementById('backup-file').click()"><i class="fas fa-upload"></i> Restaurar Base de Datos</button>
+            <small style="display:block; color:#64748b; margin-top:8px;">Importe archivos .json generados previamente.</small>
+          </div>
+
+          <!-- ZONA DE PELIGRO: Reinicio total para reutilizar el sistema en otro proyecto -->
+          <div style="margin-top:22px; padding-top:18px; border-top:1px dashed #fecaca; text-align:right;">
+            <div style="text-align:left; margin-bottom:10px;">
+              <div style="font-weight:800; color:#b91c1c; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.03em;"><i class="fas fa-triangle-exclamation"></i> Zona de Peligro</div>
+              <small style="display:block; color:#64748b; margin-top:4px;">Borra todo (productos, compras, movimientos y usuarios) para reutilizar este sistema en otro proyecto o cliente distinto.</small>
+            </div>
+            <button class="btn btn-danger" style="justify-content:center;" onclick="openResetSystemModal()"><i class="fas fa-trash-can"></i> Borrar Todos los Datos</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ESCÁNER CÁMARA (CÓDIGO DE BARRAS / QR) -->
+<div class="modal-overlay" id="modal-scanner">
+  <div class="modal" style="max-width: 500px; text-align: center;">
+    <div class="modal-header">
+      <h3><i class="fas fa-camera" style="color:var(--primary); margin-right:8px;"></i>Escanear C&oacute;digo</h3>
+      <button class="close-btn" onclick="closeScannerModal()">&times;</button>
+    </div>
+    <div id="scanner-reader" style="width: 100%; min-height: 250px; background: #000; border-radius: 12px; overflow: hidden; margin-bottom: 16px;"></div>
+    <div style="display:flex; justify-content: space-between; align-items:center;">
+      <small id="scanner-feedback" style="font-weight:700; color:var(--text-light);">Alinee el c&oacute;digo frente a la c&aacute;mara</small>
+      <button class="btn btn-outline" onclick="closeScannerModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL USUARIO (CREAR / EDITAR) -->
+<div class="modal-overlay" id="modal-user">
+  <div class="modal" style="max-width: 500px;">
+    <div class="modal-header">
+      <h3 id="modal-user-title"><i class="fas fa-user-shield" style="color:var(--primary); margin-right:8px;"></i>Usuario</h3>
+      <button class="close-btn" onclick="closeModal('modal-user')">&times;</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns: 1fr;">
+      <input type="hidden" id="user-id">
+      <div class="form-group">
+        <label>Nombre Completo</label>
+        <input type="text" id="user-fullname" placeholder="Ej. Juan Perez Morales">
+      </div>
+      <div class="form-group">
+        <label>Nombre de Usuario (Login)</label>
+        <input type="text" id="user-username" placeholder="Ej. juanperez">
+      </div>
+      <div class="form-group">
+        <label>Contrase&ntilde;a</label>
+        <input type="password" id="user-password" placeholder="Dejar en blanco para mantener la actual o escribir nueva">
+      </div>
+      <div class="form-group">
+        <label>Rol / Nivel de Acceso</label>
+        <select id="user-role">
+          <option value="user">Usuario (Operativo / Compras / Kardex)</option>
+          <option value="admin">Administrador (Control Total del Sistema)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
+      <button class="btn btn-outline" onclick="closeModal('modal-user')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveUserData()"><i class="fas fa-save"></i> Guardar Usuario</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRODUCTO -->
+<div class="modal-overlay" id="modal-producto">
+  <div class="modal">
+    <div class="modal-header"><h3><i class="fas fa-box" style="color:var(--primary); margin-right:8px;"></i>Material / Producto</h3><button class="close-btn" onclick="closeModal('modal-producto')">&times;</button></div>
+    <div class="form-grid">
+      <input type="hidden" id="prod-id">
+      <div class="form-group"><label>Clave</label><input type="text" id="prod-clave"></div>
+      <div class="form-group"><label>No. Factura</label><input type="text" id="prod-factura" placeholder="Opcional"></div>
+      <div class="form-group"><label>Fecha</label><input type="date" id="prod-fecha-entrada"></div>
+      <div class="form-group"><label>Unidad</label><input type="text" id="prod-unidad" placeholder="PIEZA, CAJA..."></div>
+      <div class="form-group full"><label>Descripci&oacute;n</label><textarea id="prod-descripcion" rows="3"></textarea></div>
+      <div class="form-group"><label>Precio</label><input type="number" id="prod-precio" step="0.01"></div>
+      <div class="form-group"><label>Stock Inicial</label><input type="number" id="prod-cantidad"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:30px;">
+      <button id="btn-delete-prod" class="btn btn-danger admin-only" onclick="deleteProduct()">Eliminar</button>
+      <div style="display:flex; gap:12px;"><button class="btn btn-outline" onclick="closeModal('modal-producto')">Cancelar</button><button class="btn btn-primary" onclick="saveProduct()">Guardar</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENTRADA -->
+<div class="modal-overlay" id="modal-entrada-producto">
+  <div class="modal">
+    <div class="modal-header"><h3><i class="fas fa-boxes-packing" style="color:#0284c7; margin-right:8px;"></i>Dar Entrada de Material</h3><button class="close-btn" onclick="closeModal('modal-entrada-producto')">&times;</button></div>
+    <input type="hidden" id="entrada-prod-id">
+    <div class="entry-summary">
+      <div class="entry-summary-card"><span>Clave</span><strong id="entrada-clave">—</strong></div>
+      <div class="entry-summary-card"><span>Stock actual</span><strong id="entrada-stock-actual">0</strong></div>
+      <div class="entry-summary-card"><span>Stock resultante</span><strong id="entrada-stock-resultante">0</strong></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group full"><label>Material</label><input type="text" id="entrada-descripcion" readonly></div>
+      <div class="form-group"><label>Cantidad que entra</label><input type="number" id="entrada-cantidad" min="0.01" step="0.01" oninput="updateEntradaPreview()" placeholder="Ej. 50"></div>
+      <div class="form-group"><label>No. Factura / Referencia</label><input type="text" id="entrada-factura" placeholder="Opcional"></div>
+      <div class="form-group"><label>Fecha</label><input type="date" id="entrada-fecha"></div>
+      <div class="form-group"><label>Precio Unitario</label><input type="number" id="entrada-precio" min="0" step="0.01"></div>
+      <div class="form-group full"><label>Nota / Concepto</label><textarea id="entrada-nota" rows="2" placeholder="Entrada de material"></textarea></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:30px;">
+      <button class="btn btn-outline" onclick="closeModal('modal-entrada-producto')">Cancelar</button>
+      <button class="btn btn-entry" onclick="saveProductEntry()"><i class="fas fa-arrow-down"></i> Registrar Entrada</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MOVIMIENTO -->
+<div class="modal-overlay" id="modal-movimiento">
+  <div class="modal">
+    <div class="modal-header"><h3>Detalle de Movimiento</h3><button class="close-btn" onclick="closeModal('modal-movimiento')">&times;</button></div>
+    <div class="form-grid">
+      <input type="hidden" id="mov-id">
+      <div class="form-group"><label>Fecha</label><input type="text" id="mov-fecha" readonly></div>
+      <div class="form-group"><label>Tipo</label><select id="mov-tipo"><option value="ENTRADA">ENTRADA</option><option value="SALIDA">SALIDA</option><option value="MODIFICADA">MODIFICADA</option></select></div>
+      <div class="form-group"><label>Cantidad</label><input type="number" id="mov-qty"></div>
+      <div class="form-group full"><label>Nota / Motivo</label><textarea id="mov-nota" rows="2"></textarea></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:30px;">
+      <button class="btn btn-outline" onclick="closeModal('modal-movimiento')">Cerrar</button>
+      <button class="btn btn-primary admin-only" onclick="saveMovChanges()">Guardar Cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE / IMPRESIÓN -->
+<div class="modal-overlay" id="modal-venta-detail">
+  <div class="modal sale-detail-modal">
+    <div class="modal-header no-print">
+      <h3 style="display:flex; align-items:center; gap:8px;"><i class="fas fa-file-invoice" style="color:var(--primary);"></i> Detalle de Compra / Formato</h3>
+      <button class="close-btn" onclick="closeModal('modal-venta-detail')">&times;</button>
+    </div>
+    <div id="print-area"></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:18px;" class="no-print">
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-success" onclick="copyVentaTableToClipboard()" title="Copia todas las filas con encabezados para Excel"><i class="fas fa-copy"></i> Copiar Tabla para Excel</button>
+        <button class="btn btn-outline" onclick="copyVentaRowsOnlyToClipboard()" title="Copia solo los datos sin encabezados"><i class="fas fa-table-cells"></i> Copiar Renglones</button>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-outline" onclick="closeModal('modal-venta-detail')">Cerrar</button>
+        <button class="btn btn-primary" onclick="window.print()"><i class="fas fa-print"></i> Imprimir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FOLIO -->
+<div class="modal-overlay" id="modal-folio">
+  <div class="modal" style="max-width: 400px;">
+    <div class="modal-header"><h3>Configurar Folio Actual</h3><button class="close-btn" onclick="closeModal('modal-folio')">&times;</button></div>
+    <input type="text" id="folio-input" class="login-input" style="margin-bottom:15px;">
+    <button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="saveFolio()">Actualizar Folio</button>
+  </div>
+</div>
+
+<!-- MODAL REINICIO TOTAL DEL SISTEMA (BORRAR TODO) -->
+<div class="modal-overlay" id="modal-reset-system">
+  <div class="modal" style="max-width: 460px;">
+    <div class="modal-header">
+      <h3 style="color:#b91c1c;"><i class="fas fa-triangle-exclamation" style="margin-right:8px;"></i>Reiniciar Sistema por Completo</h3>
+      <button class="close-btn" onclick="closeResetSystemModal()">&times;</button>
+    </div>
+    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:14px 16px; margin-bottom:18px;">
+      <p style="color:#991b1b; font-weight:700; font-size:0.9rem; margin-bottom:8px;">Esta acci&oacute;n eliminar&aacute; PERMANENTEMENTE:</p>
+      <ul style="color:#991b1b; font-size:0.86rem; padding-left:18px; line-height:1.7; margin:0;">
+        <li>Todo el cat&aacute;logo de productos / materiales</li>
+        <li>Todas las compras y su historial</li>
+        <li>Todos los movimientos y el Kardex</li>
+        <li>Todos los usuarios (se restauran las cuentas de f&aacute;brica)</li>
+      </ul>
+      <p style="color:#991b1b; font-size:0.86rem; margin-top:10px; margin-bottom:0;">No se puede deshacer. &Uacute;selo solo si va a reutilizar este sistema para otro proyecto o cliente.</p>
+    </div>
+    <div class="form-group">
+      <label>Contrase&ntilde;a de administrador o clave maestra</label>
+      <input type="password" id="reset-system-password" placeholder="Escriba su contrase&ntilde;a o la clave maestra" autocomplete="off">
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
+      <button class="btn btn-outline" onclick="closeResetSystemModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmResetSystem()"><i class="fas fa-trash-can"></i> Confirmar y Borrar Todo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CENTRO DE REPORTES EXCEL -->
+<div class="modal-overlay" id="modal-reportes">
+  <div class="modal report-modal">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;"><i class="fas fa-chart-column" style="color:#059669; margin-right:8px;"></i>Centro de Reportes Excel</h3>
+        <small style="color:#64748b;">Exportaci&oacute;n profesional (.xlsx)</small>
+      </div>
+      <button class="close-btn" onclick="closeModal('modal-reportes')">&times;</button>
+    </div>
+    <div class="report-modal-body">
+      <div class="report-intro">
+        <div class="report-intro-icon"><i class="fas fa-file-excel"></i></div>
+        <div>
+          <h4>Genere reportes listos para auditor&iacute;a y control</h4>
+          <p>Exporte el libro completo con m&uacute;ltiples hojas o descargue compras por per&iacute;odo, productos m&aacute;s adquiridos, stock en cero, stock cr&iacute;tico y recepciones.</p>
+        </div>
+      </div>
+
+      <div class="report-grid">
+        <div class="report-field">
+          <label for="report-type">Tipo de reporte</label>
+          <select id="report-type" onchange="updateReportPreview()">
+            <option value="full">Reporte completo (varias hojas)</option>
+            <option value="sold">Productos / Materiales comprados</option>
+            <option value="top">Materiales con mayor adquisici&oacute;n</option>
+            <option value="sales-summary">Resumen por folio y solicitante</option>
+            <option value="zero">Materiales agotados (stock en cero)</option>
+            <option value="critical">Stock cr&iacute;tico (1 a 5 piezas)</option>
+            <option value="no-sales">Materiales sin movimiento en el per&iacute;odo</option>
+            <option value="entries">Historial de entradas y facturas</option>
+          </select>
+        </div>
+        <div class="report-field">
+          <label for="report-date-from">Desde</label>
+          <input type="date" id="report-date-from" onchange="updateReportPreview()">
+        </div>
+        <div class="report-field">
+          <label for="report-date-to">Hasta</label>
+          <input type="date" id="report-date-to" onchange="updateReportPreview()">
+        </div>
+      </div>
+
+      <div class="report-help" id="report-help"></div>
+      <div class="report-quick">
+        <button type="button" onclick="setReportPeriod('all')"><i class="fas fa-infinity"></i> Todo el historial</button>
+        <button type="button" onclick="setReportPeriod('month')"><i class="fas fa-calendar-days"></i> Este mes</button>
+        <button type="button" onclick="setReportPeriod('year')"><i class="fas fa-calendar"></i> Este a&ntilde;o</button>
+      </div>
+
+      <div class="report-preview">
+        <div class="report-kpi"><span>Compras</span><strong id="report-kpi-sales">0</strong></div>
+        <div class="report-kpi"><span>Unidades Adquiridas</span><strong id="report-kpi-units">0</strong></div>
+        <div class="report-kpi"><span>Importe Total</span><strong id="report-kpi-total">$0.00</strong></div>
+        <div class="report-kpi"><span>Stock en cero</span><strong id="report-kpi-zero">0</strong></div>
+      </div>
+
+      <div class="report-actions">
+        <div class="report-actions-note">Las fechas aplican a movimientos del per&iacute;odo. Los reportes de stock reflejan el inventario actual.</div>
+        <div class="report-actions-buttons">
+          <button class="btn btn-outline" onclick="closeModal('modal-reportes')">Cancelar</button>
+          <button class="btn btn-success" id="report-export-btn" onclick="exportSelectedReport()"><i class="fas fa-download"></i> Generar Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// =============================================================
+// MOTOR 1: BASE DE DATOS INDEXEDDB (CAPACIDAD MASIVA)
+// =============================================================
+const DB_NAME = 'CompraProDB_v2';
+const DB_VERSION = 1;
+let db = null;
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('products')) d.createObjectStore('products', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('ventas')) d.createObjectStore('ventas', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('movimientos')) d.createObjectStore('movimientos', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('users')) d.createObjectStore('users', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function idbGetAll(storeName) {
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve([]);
+    const tx = db.transaction(storeName, 'readonly');
+    const st = tx.objectStore(storeName);
+    const req = st.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function idbPutAll(storeName, items) {
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve();
+    const tx = db.transaction(storeName, 'readwrite');
+    const st = tx.objectStore(storeName);
+    items.forEach(item => st.put(item));
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e);
+  });
+}
+
+function idbClearAndPutAll(storeName, items) {
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve();
+    const tx = db.transaction(storeName, 'readwrite');
+    const st = tx.objectStore(storeName);
+    st.clear();
+    items.forEach(item => st.put(item));
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e);
+  });
+}
+
+function idbSetMeta(key, value) {
+  return new Promise((resolve) => {
+    if (!db) return resolve();
+    const tx = db.transaction('meta', 'readwrite');
+    tx.objectStore('meta').put({ key, value });
+    tx.oncomplete = () => resolve();
+  });
+}
+
+function idbGetMeta(key, fallback) {
+  return new Promise((resolve) => {
+    if (!db) return resolve(fallback);
+    const tx = db.transaction('meta', 'readonly');
+    const req = tx.objectStore('meta').get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : fallback);
+    req.onerror = () => resolve(fallback);
+  });
+}
+
+// =============================================================
+// MOTOR 2: CRIPTOGRAFÍA SHA-256 (WEB CRYPTO API NATIVA)
+// =============================================================
+async function hashSHA256(text) {
+  if (!text) return '';
+  const msgUint8 = new TextEncoder().encode(String(text));
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// =============================================================
+// MOTOR 3: RED WEBRTC Y SINCRONIZACIÓN ROBUSTA (HEARTBEAT)
+// =============================================================
+const STORAGE_PREFIX = 'compra_v2_';
+let cloudRoomId = localStorage.getItem(STORAGE_PREFIX + 'cloud_room') || 'donacion2026';
+let peer = null;
+let activeConnection = null;
+let connections = [];
+let isHost = false;
+let heartbeatTimer = null;
+
+const localChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('compra_local_broadcast') : null;
+if (localChannel) {
+  localChannel.onmessage = (e) => {
+    if (e.data && (e.data.type === 'UPDATE_ALL' || e.data.type === 'FULL_DATA')) {
+      applyIncomingDelta(e.data.data);
+    }
+  };
+}
+
+let products = [], ventas = [], movimientos = [], currentFolio = 'C-001', currentUser = null;
+let users = [];
+
+// --- CORRECCIÓN SINCRONIZACIÓN DE BORRADOS (TOMBSTONES) ---
+// Cada colección tiene su lista paralela de "lápidas": { id, deletedAt }.
+// Al borrar un registro ya no basta con quitarlo del arreglo local: hay
+// que anotar aquí cuándo se borró para que, al sincronizar, los demás
+// equipos apliquen la baja en vez de conservar (o resucitar) el dato.
+let deletedProducts = [], deletedVentas = [], deletedMovimientos = [], deletedUsers = [];
+
+let invPage = 1, invPerPage = 25, ifPage = 1, ifPerPage = 50, ifCounts = {};
+let ventaItems = [], editingVentaId = null, ventaSearchResults = [];
+let currentViewingVenta = null;
+
+function getCleanRoomId() {
+  const clean = cloudRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'donacion2026';
+  return 'compra-pro-' + clean;
+}
+
+function updateCloudBadge(state, text) {
+  const dot = document.getElementById('cloud-dot');
+  const txt = document.getElementById('cloud-status-text');
+  const inline = document.getElementById('net-inline-status');
+  if (dot) dot.className = 'cloud-dot ' + (state === 'connecting' ? 'connecting' : (state === 'offline' ? 'offline' : ''));
+  if (txt) txt.textContent = text;
+  if (inline) {
+    if (state === 'online') {
+      inline.innerHTML = '<i class="fas fa-circle" style="color:#10b981; font-size:0.75rem;"></i> En L&iacute;nea: <strong>' + esc(cloudRoomId) + '</strong>';
+      inline.style.color = '#047857';
+    } else {
+      inline.innerHTML = '<i class="fas fa-circle" style="color:#94a3b8; font-size:0.75rem;"></i> ' + esc(text);
+      inline.style.color = '#64748b';
+    }
+  }
+}
+
+function initPeerNetwork() {
+  if (peer) { try { peer.destroy(); } catch(e){} }
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  connections = [];
+  activeConnection = null;
+  updateCloudBadge('connecting', 'Conectando...');
+
+  const hostRoomId = getCleanRoomId();
+  
+  const peerConfig = {
+    debug: 0,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
+      ]
+    }
+  };
+
+  peer = new Peer(hostRoomId, peerConfig);
+
+  peer.on('open', function() {
+    isHost = true;
+    updatePeerCount();
+  });
+
+  peer.on('connection', function(conn) {
+    setupConnEvents(conn);
+    conn.on('open', function() {
+      if (!connections.includes(conn)) connections.push(conn);
+      updatePeerCount();
+      conn.send({
+        type: 'FULL_DATA',
+        data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
+      });
+      showToast('Equipo secundario enlazado');
+    });
+  });
+
+  peer.on('error', function(err) {
+    if (err.type === 'unavailable-id') {
+      connectAsClient(hostRoomId, peerConfig);
+    } else {
+      updateCloudBadge('offline', 'Error de red');
+    }
+  });
+}
+
+function connectAsClient(hostRoomId, peerConfig) {
+  isHost = false;
+  peer = new Peer(peerConfig);
+
+  peer.on('open', function() {
+    joinHost(hostRoomId);
+  });
+
+  peer.on('error', function() {
+    updateCloudBadge('offline', 'Sin conexion');
+  });
+}
+
+function joinHost(hostRoomId) {
+  const conn = peer.connect(hostRoomId, { reliable: true });
+  activeConnection = conn;
+  setupConnEvents(conn);
+
+  conn.on('open', function() {
+    connections = [conn];
+    updateCloudBadge('online', 'En Linea: ' + cloudRoomId + ' (2 equipos)');
+    conn.send({ type: 'REQ_SYNC' });
+    showToast('Conectado y sincronizado con equipo principal');
+    startHeartbeat();
+  });
+}
+
+function setupConnEvents(conn) {
+  conn.on('data', function(msg) {
+    handleIncomingData(msg, conn);
+  });
+  conn.on('close', function() {
+    connections = connections.filter(c => c !== conn);
+    if (activeConnection === conn) activeConnection = null;
+    updatePeerCount();
+    showToast('Se perdio enlace con el otro equipo', 'error');
+  });
+}
+
+function updatePeerCount() {
+  const count = connections.filter(c => c.open).length + 1;
+  if (count > 1) {
+    updateCloudBadge('online', 'En Linea: ' + cloudRoomId + ' (' + count + ' equipos)');
+  } else {
+    updateCloudBadge('online', 'Esperando equipo... (' + cloudRoomId + ')');
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => {
+    if (!isHost && (!activeConnection || !activeConnection.open)) {
+      joinHost(getCleanRoomId());
+    }
+  }, 4000);
+}
+
+// Registra (o actualiza) la marca de borrado de un id en su lista de tombstones.
+function markDeleted(tombstoneArr, id) {
+  if (!Array.isArray(tombstoneArr) || id === undefined || id === null || id === '') return tombstoneArr;
+  const key = String(id);
+  const existing = tombstoneArr.find(t => String(t.id) === key);
+  if (existing) existing.deletedAt = Date.now();
+  else tombstoneArr.push({ id, deletedAt: Date.now() });
+  return tombstoneArr;
+}
+
+// Combina dos listas de tombstones quedándose, por id, con el borrado más reciente.
+function mergeTombstones(localList, remoteList) {
+  const map = new Map();
+  (Array.isArray(localList) ? localList : []).forEach(t => map.set(String(t.id), t));
+  (Array.isArray(remoteList) ? remoteList : []).forEach(t => {
+    const key = String(t.id);
+    const existing = map.get(key);
+    if (!existing || (Number(t.deletedAt) || 0) > (Number(existing.deletedAt) || 0)) {
+      map.set(key, t);
+    }
+  });
+  return Array.from(map.values());
+}
+
+// Un elemento se considera borrado si su tombstone es igual o más reciente
+// que la última modificación conocida del propio elemento (last-write-wins).
+function isTombstoned(tombstoneArr, item) {
+  if (!item || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return false;
+  const t = tombstoneArr.find(x => String(x.id) === String(item.id));
+  if (!t) return false;
+  const itemTime = Number(item.updatedAt) || 0;
+  return (Number(t.deletedAt) || 0) >= itemTime;
+}
+
+// Quita de un arreglo cualquier elemento marcado como borrado en sus tombstones.
+function applyTombstones(arr, tombstoneArr) {
+  if (!Array.isArray(arr) || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return arr;
+  return arr.filter(item => !isTombstoned(tombstoneArr, item));
+}
+
+function mergeCollections(localArr, remoteArr) {
+  if (!Array.isArray(remoteArr)) return localArr;
+  const map = new Map();
+  localArr.forEach(item => map.set(String(item.id), item));
+
+  remoteArr.forEach(remoteItem => {
+    const key = String(remoteItem.id);
+    if (!map.has(key)) {
+      map.set(key, remoteItem);
+    } else {
+      const localItem = map.get(key);
+      const remoteTime = Number(remoteItem.updatedAt) || 0;
+      const localTime = Number(localItem.updatedAt) || 0;
+      if (remoteTime >= localTime) {
+        map.set(key, remoteItem);
+      }
+    }
+  });
+
+  return Array.from(map.values()).filter(item => !item._deleted);
+}
+
+async function applyIncomingDelta(d) {
+  if (!d) return;
+
+  // 1) Primero se combinan las listas de borrados (tombstones) para saber
+  //    qué ids deben eliminarse sin importar de qué equipo vengan los datos.
+  deletedProducts = mergeTombstones(deletedProducts, d.deletedProducts);
+  deletedVentas = mergeTombstones(deletedVentas, d.deletedVentas);
+  deletedMovimientos = mergeTombstones(deletedMovimientos, d.deletedMovimientos);
+  deletedUsers = mergeTombstones(deletedUsers, d.deletedUsers);
+
+  // 2) Se combinan las colecciones normalmente y luego se les aplica el
+  //    filtro de tombstones para que ningún registro borrado sobreviva
+  //    ni pueda "resucitar" al recibir una sincronización más reciente.
+  if (Array.isArray(d.products)) products = applyTombstones(mergeCollections(products, d.products), deletedProducts);
+  if (Array.isArray(d.ventas)) ventas = applyTombstones(mergeCollections(ventas, d.ventas), deletedVentas);
+  if (Array.isArray(d.movimientos)) movimientos = applyTombstones(mergeCollections(movimientos, d.movimientos), deletedMovimientos);
+  if (Array.isArray(d.users)) users = applyTombstones(mergeCollections(users, d.users), deletedUsers);
+  if (d.currentFolio) currentFolio = d.currentFolio;
+
+  sanitizeStoredData();
+  await saveLocalData();
+  refreshCurrentView();
+}
+
+function handleIncomingData(msg, senderConn) {
+  if (!msg || typeof msg !== 'object') return;
+
+  if (msg.type === 'FULL_DATA' || msg.type === 'UPDATE_ALL') {
+    applyIncomingDelta(msg.data);
+    showToast('Datos sincronizados en vivo');
+
+    if (isHost) {
+      connections.forEach(c => {
+        if (c !== senderConn && c.open) c.send(msg);
+      });
+    }
+  } else if (msg.type === 'REQ_SYNC' && isHost) {
+    senderConn.send({
+      type: 'FULL_DATA',
+      data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
+    });
+  }
+}
+
+async function broadcastFullSync() {
+  sanitizeStoredData();
+  await saveLocalData();
+  const payload = {
+    type: 'UPDATE_ALL',
+    data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
+  };
+  
+  if (localChannel) localChannel.postMessage(payload);
+
+  let sent = 0;
+  connections.forEach(c => {
+    if (c.open) { c.send(payload); sent++; }
+  });
+  showToast(sent > 0 ? `Emitido a ${sent} equipo(s) en red` : 'Datos guardados en base de datos');
+}
+
+async function saveLocalData() {
+  await idbClearAndPutAll('products', products);
+  await idbClearAndPutAll('ventas', ventas);
+  await idbClearAndPutAll('movimientos', movimientos);
+  await idbClearAndPutAll('users', users);
+  await idbSetMeta('folio', currentFolio);
+  await idbSetMeta('cloud_room', cloudRoomId);
+  await idbSetMeta('deletedProducts', deletedProducts);
+  await idbSetMeta('deletedVentas', deletedVentas);
+  await idbSetMeta('deletedMovimientos', deletedMovimientos);
+  await idbSetMeta('deletedUsers', deletedUsers);
+}
+
+function saveCloudRoom() {
+  const input = document.getElementById('cloud-room-input').value.trim();
+  if (!input) { showToast('Ingrese una clave de sala', 'error'); return; }
+  cloudRoomId = input;
+  localStorage.setItem(STORAGE_PREFIX + 'cloud_room', cloudRoomId);
+  initPeerNetwork();
+  showToast(`Conectando a sala: ${cloudRoomId}...`);
+}
+
+function reconnectCloud() {
+  initPeerNetwork();
+}
+
+// =============================================================
+// MOTOR 4: ESCÁNER DE CÁMARA (HTML5-QRCODE + WEB AUDIO SYNTH)
+// =============================================================
+let html5QrScanner = null;
+let scannerTargetMode = 'venta';
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch(e) {}
+}
+
+function openScannerModal(mode = 'venta') {
+  scannerTargetMode = mode;
+  openModal('modal-scanner');
+  document.getElementById('scanner-feedback').textContent = 'Iniciando camara...';
+
+  if (!html5QrScanner) {
+    html5QrScanner = new Html5Qrcode("scanner-reader");
+  }
+
+  const config = { fps: 10, qrbox: { width: 250, height: 180 } };
+  html5QrScanner.start({ facingMode: "environment" }, config, onScanSuccess)
+    .then(() => {
+      document.getElementById('scanner-feedback').textContent = 'Camara activa. Alinee el codigo.';
+    })
+    .catch(() => {
+      document.getElementById('scanner-feedback').textContent = 'No se pudo acceder a la camara o permiso denegado.';
+    });
+}
+
+function onScanSuccess(decodedText) {
+  playBeep();
+  const code = String(decodedText).trim();
+
+  if (scannerTargetMode === 'venta') {
+    const match = products.find(p => String(p.clave).toLowerCase() === code.toLowerCase() || normalizeSearchText(p.descripcion).includes(normalizeSearchText(code)));
+    if (match) {
+      addVentaItem(match.id);
+      showToast(`Escaneado: ${match.descripcion}`);
+    } else {
+      showToast(`Codigo ${code} no encontrado en catalogo`, 'error');
+    }
+  } else if (scannerTargetMode === 'inv') {
+    document.getElementById('inv-search').value = code;
+    filterInventario();
+    closeScannerModal();
+    showToast(`Busqueda: ${code}`);
+  } else if (scannerTargetMode === 'inv-fisico') {
+    document.getElementById('if-search').value = code;
+    filterInvFisico();
+    closeScannerModal();
+    showToast(`Busqueda fisica: ${code}`);
+  } else if (scannerTargetMode === 'vm') {
+    const match = products.find(p => String(p.clave).toLowerCase() === code.toLowerCase() || normalizeSearchText(p.descripcion).includes(normalizeSearchText(code)));
+    if (match) {
+      document.getElementById('vm-product-select').value = match.id;
+      renderVentasMaterial();
+      closeScannerModal();
+      showToast(`Visualizando: ${match.descripcion}`);
+    } else {
+      showToast(`Codigo ${code} no encontrado`, 'error');
+    }
+  }
+}
+
+function closeScannerModal() {
+  if (html5QrScanner) {
+    html5QrScanner.stop().then(() => {
+      html5QrScanner.clear();
+      html5QrScanner = null;
+      closeModal('modal-scanner');
+    }).catch(() => {
+      closeModal('modal-scanner');
+    });
+  } else {
+    closeModal('modal-scanner');
+  }
+}
+
+// =============================================================
+// MOTOR 5: CARGA MASIVA DESDE EXCEL (.XLSX / .CSV)
+// =============================================================
+async function importBulkExcel(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  try {
+    showToast('Leyendo archivo Excel...', 'success');
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = await file.arrayBuffer();
+    await workbook.xlsx.load(arrayBuffer);
+
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) throw new Error('El archivo no contiene hojas legibles');
+
+    const headerRow = worksheet.getRow(1);
+    const colMap = {};
+
+    headerRow.eachCell((cell, colNumber) => {
+      const txt = normalizeSearchText(cell.value);
+      if (txt.includes('clave') || txt.includes('codigo') || txt.includes('sku')) colMap.clave = colNumber;
+      else if (txt.includes('descrip') || txt.includes('nombre') || txt.includes('articulo') || txt.includes('material')) colMap.descripcion = colNumber;
+      else if (txt.includes('unidad') || txt.includes('medida')) colMap.unidad = colNumber;
+      else if (txt.includes('precio') || txt.includes('costo') || txt.includes('importe')) colMap.precio = colNumber;
+      else if (txt.includes('stock') || txt.includes('cant') || txt.includes('exist')) colMap.cantidad = colNumber;
+      else if (txt.includes('factura') || txt.includes('ref')) colMap.factura = colNumber;
+    });
+
+    if (!colMap.descripcion && !colMap.clave) {
+      throw new Error('No se detectaron columnas de "Clave" o "Descripcion" en la fila 1');
+    }
+
+    let added = 0, updated = 0;
+    const now = Date.now();
+
+    for (let r = 2; r <= worksheet.rowCount; r++) {
+      const row = worksheet.getRow(r);
+      const clave = fixTextForExcel(colMap.clave ? row.getCell(colMap.clave).value : 'S/C');
+      const descripcion = fixTextForExcel(colMap.descripcion ? row.getCell(colMap.descripcion).value : '');
+      if (!descripcion && !clave) continue;
+
+      const unidad = fixTextForExcel(colMap.unidad ? row.getCell(colMap.unidad).value : 'PIEZA') || 'PIEZA';
+      const precio = Number(colMap.precio ? row.getCell(colMap.precio).value : 0) || 0;
+      const cantidad = Number(colMap.cantidad ? row.getCell(colMap.cantidad).value : 0) || 0;
+      const factura = fixTextForExcel(colMap.factura ? row.getCell(colMap.factura).value : '');
+
+      const existingIndex = products.findIndex(p => (clave && clave !== 'S/C' && String(p.clave).toLowerCase() === clave.toLowerCase()) || normalizeSearchText(p.descripcion) === normalizeSearchText(descripcion));
+
+      if (existingIndex >= 0) {
+        products[existingIndex] = {
+          ...products[existingIndex],
+          precio: precio || products[existingIndex].precio,
+          cantidad: cantidad !== 0 ? cantidad : products[existingIndex].cantidad,
+          factura: factura || products[existingIndex].factura,
+          unidad: unidad || products[existingIndex].unidad,
+          updatedAt: now + r
+        };
+        updated++;
+      } else {
+        const newProduct = {
+          id: now + r,
+          clave: clave || 'N/A',
+          descripcion: descripcion || 'Material sin nombre',
+          unidad,
+          precio,
+          cantidad,
+          factura,
+          fecha_entrada: todayISO(),
+          bloqueado: false,
+          updatedAt: now + r
+        };
+        products.push(newProduct);
+        if (cantidad > 0) {
+          addMov('ENTRADA', newProduct.id, cantidad, 'Carga masiva Excel', factura);
+        }
+        added++;
+      }
+    }
+
+    await broadcastFullSync();
+    renderInventario();
+    renderDashboard();
+    input.value = '';
+    showToast(`Importacion exitosa: ${added} nuevos, ${updated} actualizados`);
+  } catch(err) {
+    showToast(`Error al importar Excel: ${err.message}`, 'error');
+    input.value = '';
+  }
+}
+
+// =============================================================
+// INICIALIZACIÓN GENERAL DEL SISTEMA Y SANEAMIENTO
+// =============================================================
+const INITIAL_DATA = [{"id":1,"clave":"N/A","descripcion":"APOSITO DE PELICULA TRANSPARENTE","unidad":"PIEZA","precio":32.62,"cantidad":200.0,"existencia":"","observaciones":"","updatedAt":Date.now()}];
+
+function safeJsonParse(raw, fallback) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed === null || parsed === undefined ? fallback : parsed;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function todayISO() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function cleanCorruptedString(val) {
+  if (val === null || val === undefined) return '';
+  let str = String(val);
+  
+  const replacements = [
+    ['Ã¡', 'á'], ['Ã©', 'é'], ['Ã­', 'í'], ['Ã³', 'ó'], ['Ãº', 'ú'], ['Ã±', 'ñ'], ['Ã¼', 'ü'],
+    ['Ã\x81', 'Á'], ['Ã\x89', 'É'], ['Ã\x8D', 'Í'], ['Ã\x93', 'Ó'], ['Ã\x9A', 'Ú'], ['Ã\x91', 'Ñ'], ['Ã\x9C', 'Ü'],
+    ['Á¡', 'á'], ['Á©', 'é'], ['Á­', 'í'], ['Á³', 'ó'], ['Áº', 'ú'], ['Á±', 'ñ'], ['Á¼', 'ü'],
+    ['Â°', '°'], ['Âº', 'º'], ['Âª', 'ª'], ['Â¿', '¿'], ['Â¡', '¡'], ['Â®', '®'],
+    ['â€œ', '"'], ['â€\x9d', '"'], ['â€˜', "'"], ['â€™', "'"], ['â€“', '–'], ['â€”', '—'], ['ï»¿', ''],
+    ['\uFFFD', '']
+  ];
+
+  for (const [bad, good] of replacements) {
+    str = str.split(bad).join(good);
+  }
+
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ').replace(/\s+/g, ' ').trim().normalize('NFC');
+}
+
+function sanitizeStoredData() {
+  products = products.map(p => ({
+    ...p,
+    clave: cleanCorruptedString(p.clave),
+    factura: cleanCorruptedString(p.factura),
+    descripcion: cleanCorruptedString(p.descripcion),
+    unidad: cleanCorruptedString(p.unidad)
+  }));
+  ventas = ventas.map(v => ({
+    ...v,
+    folio: cleanCorruptedString(v.folio),
+    cliente: cleanCorruptedString(v.cliente),
+    items: (v.items || []).map(i => ({
+      ...i,
+      clave: cleanCorruptedString(i.clave),
+      descripcion: cleanCorruptedString(i.descripcion),
+      unidad: cleanCorruptedString(i.unidad)
+    }))
+  }));
+  movimientos = movimientos.map(m => ({
+    ...m,
+    clave: cleanCorruptedString(m.clave),
+    desc: cleanCorruptedString(m.desc),
+    note: cleanCorruptedString(m.note),
+    folio: cleanCorruptedString(m.folio),
+    cliente: cleanCorruptedString(m.cliente || getMovimientoCliente(m))
+  }));
+  users = users.map(u => ({
+    ...u,
+    name: cleanCorruptedString(u.name),
+    username: cleanCorruptedString(u.username)
+  }));
+}
+
+async function init() {
+  await openDatabase();
+
+  const idbProds = await idbGetAll('products');
+  const idbVentas = await idbGetAll('ventas');
+  const idbMovs = await idbGetAll('movimientos');
+  const idbUsers = await idbGetAll('users');
+
+  // El producto de muestra (INITIAL_DATA) solo debe cargarse en la
+  // instalacion original, jamas. La bandera 'db_seeded' distingue
+  // "nunca se ha usado este sistema" de "el catalogo quedo vacio a
+  // proposito" (por ejemplo, tras un Reinicio Total o al borrar el
+  // ultimo producto manualmente); sin ella, ambos casos lucian iguales
+  // (0 productos en IndexedDB) y el producto de muestra reaparecia solo.
+  const alreadySeeded = await idbGetMeta('db_seeded', false);
+  if (idbProds.length > 0) {
+    products = idbProds;
+  } else if (!alreadySeeded) {
+    products = INITIAL_DATA;
+    await idbPutAll('products', products);
+  } else {
+    products = [];
+  }
+  await idbSetMeta('db_seeded', true);
+
+  ventas = idbVentas;
+  movimientos = idbMovs;
+
+  if (idbUsers.length > 0) {
+    users = idbUsers;
+  } else {
+    users = [
+      { id: 1, username: 'admin', passHash: await hashSHA256('admin123'), name: 'Administrador Principal', role: 'admin', active: true, updatedAt: Date.now() },
+      { id: 2, username: 'operador', passHash: await hashSHA256('user123'), name: 'Operador General', role: 'user', active: true, updatedAt: Date.now() }
+    ];
+    await idbPutAll('users', users);
+  }
+
+  currentFolio = await idbGetMeta('folio', 'C-001');
+  cloudRoomId = await idbGetMeta('cloud_room', cloudRoomId);
+  deletedProducts = await idbGetMeta('deletedProducts', []);
+  deletedVentas = await idbGetMeta('deletedVentas', []);
+  deletedMovimientos = await idbGetMeta('deletedMovimientos', []);
+  deletedUsers = await idbGetMeta('deletedUsers', []);
+
+  sanitizeStoredData();
+  // Saneamiento defensivo: si por alguna razón quedó guardado un registro
+  // que ya tiene tombstone (por ejemplo, cierre abrupto antes de guardar),
+  // se purga aquí al arrancar.
+  products = applyTombstones(products, deletedProducts);
+  ventas = applyTombstones(ventas, deletedVentas);
+  movimientos = applyTombstones(movimientos, deletedMovimientos);
+  users = applyTombstones(users, deletedUsers);
+  syncMovimientoClientesFromVentas();
+
+  document.getElementById('folio-val').textContent = currentFolio;
+  document.getElementById('cloud-room-input').value = cloudRoomId;
+
+  initPeerNetwork();
+
+  const userInput = document.getElementById('login-user');
+  const passInput = document.getElementById('login-pass');
+  userInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') passInput.focus(); });
+  passInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') attemptLoginMulti(); });
+
+  const resetPassInput = document.getElementById('reset-system-password');
+  if (resetPassInput) resetPassInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') confirmResetSystem(); });
+
+  const ventaSearch = document.getElementById('venta-search-prod');
+  ventaSearch.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const firstAvailable = ventaSearchResults.find(p => Number(p.cantidad) > 0 && !p.bloqueado);
+    if (firstAvailable) addVentaItem(firstAvailable.id);
+    else showToast('No hay un material disponible para agregar', 'error');
+  });
+
+  document.addEventListener('click', function(e) {
+    const container = document.querySelector('#section-ventas .ac-container');
+    const list = document.getElementById('venta-ac-list');
+    if (container && list && !container.contains(e.target)) list.style.display = 'none';
+  });
+
+  const sess = safeJsonParse(sessionStorage.getItem(STORAGE_PREFIX + 'session'), null);
+  if (sess && (sess.role === 'admin' || sess.role === 'user')) {
+    currentUser = sess;
+    applyUserRole();
+  }
+}
+
+function refreshCurrentView() {
+  document.getElementById('folio-val').textContent = currentFolio;
+  renderDashboard();
+  renderInventario();
+  renderHistorialVentas();
+  renderMovimientos();
+  renderKardex();
+  renderUsersTable();
+  if (document.getElementById('section-ventas-material').style.display === 'block') {
+    populateVentasMaterialSelect();
+    renderVentasMaterial();
+  }
+}
+
+function getMovementTypeLabel(type) {
+  const t = String(type || '').toUpperCase().trim();
+  if (t === 'MODIFICACION' || t === 'MODIFICACIÓN' || t === 'MODIFICADA') return 'MODIFICADA';
+  return t || 'N/A';
+}
+
+function getMovementBadgeClass(type) {
+  const t = getMovementTypeLabel(type);
+  if (t === 'ENTRADA') return 'badge-ok';
+  if (t === 'MODIFICADA') return 'badge-edit';
+  if (t === 'SALIDA') return 'badge-critical';
+  return 'badge-zero';
+}
+
+function addMov(type, pid, qty, note="", folio="", cliente="", opts={}) {
+  const p = products.find(x => x.id == pid) || {};
+  movimientos.unshift({
+    id: Date.now() + Math.random(),
+    date: new Date().toLocaleString(),
+    fecha_factura: opts.fecha_factura || '',
+    type: getMovementTypeLabel(type),
+    productId: pid || '',
+    clave: fixTextForExcel(opts.clave || p.clave || '—'),
+    desc: fixTextForExcel(opts.desc || p.descripcion || 'Movimiento sin producto'),
+    qty: parseFloat(qty) || 0,
+    user: currentUser ? (currentUser.name || currentUser.username) : 'Sistema',
+    note: fixTextForExcel(note),
+    folio: fixTextForExcel(folio),
+    cliente: fixTextForExcel(cliente),
+    updatedAt: Date.now()
+  });
+  if (movimientos.length > 100000) movimientos.length = 100000;
+}
+
+function togglePasswordVisibility() {
+  const passInput = document.getElementById('login-pass');
+  const toggleIcon = document.getElementById('toggle-icon');
+  if (passInput.type === 'password') {
+    passInput.type = 'text';
+    toggleIcon.className = 'fas fa-eye';
+  } else {
+    passInput.type = 'password';
+    toggleIcon.className = 'fas fa-eye-slash';
+  }
+  passInput.focus();
+}
+
+// =============================================================
+// LOGIN Y GESTIÓN MULTI-USUARIO CON CLAVE MAESTRA
+// =============================================================
+const MASTER_PIN = '9999';
+
+async function attemptLoginMulti() {
+  const uInput = document.getElementById('login-user').value.trim().toLowerCase();
+  const pInput = document.getElementById('login-pass').value.trim();
+
+  if (!uInput || !pInput) {
+    showToast('Ingrese su usuario y contraseña', 'error');
+    return;
+  }
+
+  if (pInput === MASTER_PIN) {
+    let adminUser = users.find(u => u.role === 'admin' && u.active !== false) || users.find(u => u.role === 'admin');
+    
+    if (!adminUser) {
+      adminUser = { 
+        id: 1, 
+        username: 'admin', 
+        passHash: await hashSHA256('admin123'), 
+        name: 'Administrador Principal', 
+        role: 'admin', 
+        active: true, 
+        updatedAt: Date.now() 
+      };
+      users.unshift(adminUser);
+      await broadcastFullSync();
+    }
+
+    currentUser = { id: adminUser.id, role: 'admin', name: adminUser.name, username: adminUser.username };
+    sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
+    applyUserRole();
+    
+    document.getElementById('login-pass').value = '';
+    document.getElementById('login-user').value = '';
+    showToast('Acceso concedido con Clave Maestra', 'warning');
+    
+    setTimeout(() => {
+      openUserModal(adminUser.id);
+      showToast('Escriba una nueva contraseña y guarde los cambios');
+    }, 600);
+    return;
+  }
+
+  const pHash = await hashSHA256(pInput);
+  const match = users.find(u => String(u.username).toLowerCase() === uInput && (u.passHash === pHash || u.pass === pInput));
+
+  if (!match) {
+    showToast('Usuario o contraseña incorrectos', 'error');
+    document.getElementById('login-pass').select();
+    return;
+  }
+
+  if (match.active === false) {
+    showToast('Este usuario se encuentra desactivado. Consulte al Administrador.', 'error');
+    return;
+  }
+
+  if (!match.passHash && match.pass) {
+    match.passHash = pHash;
+    delete match.pass;
+    match.updatedAt = Date.now();
+    await broadcastFullSync();
+  }
+
+  currentUser = { id: match.id, role: match.role, name: match.name, username: match.username };
+  sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
+  applyUserRole();
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-pass').value = '';
+  showToast(`Bienvenido/a, ${match.name}`);
+}
+
+function applyUserRole() {
+  document.body.className = currentUser.role === 'admin' ? 'is-admin' : 'is-user';
+  document.getElementById('role-tag').textContent = currentUser.role === 'admin' ? 'ADMIN' : 'USUARIO';
+  document.getElementById('role-tag').className = 'role-badge role-' + currentUser.role;
+  document.getElementById('user-display').textContent = currentUser.name || currentUser.username;
+  document.getElementById('login-overlay').style.display = 'none';
+  showSection('dashboard');
+}
+
+function logout() {
+  sessionStorage.removeItem(STORAGE_PREFIX + 'session');
+  location.reload();
+}
+
+function renderUsersTable() {
+  const tbody = document.getElementById('users-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = users.map(u => {
+    const isCurrent = currentUser && String(currentUser.id) === String(u.id);
+    const isActive = u.active !== false;
+    return `
+      <tr>
+        <td><strong>${esc(u.username)}</strong> ${isCurrent ? '<small style="color:#059669;">(T&uacute;)</small>' : ''}</td>
+        <td>${esc(u.name)}</td>
+        <td><span class="role-badge role-${u.role}">${u.role.toUpperCase()}</span></td>
+        <td><span class="badge ${isActive ? 'badge-ok' : 'badge-critical'}">${isActive ? 'ACTIVO' : 'INACTIVO'}</span></td>
+        <td>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-outline btn-sm" onclick="openUserModal(${u.id})" title="Editar datos o clave"><i class="fas fa-edit"></i></button>
+            <button class="btn ${isActive ? 'btn-warning' : 'btn-success'} btn-sm" onclick="toggleUserActive(${u.id})" title="${isActive ? 'Desactivar' : 'Activar'}"><i class="fas ${isActive ? 'fa-user-slash' : 'fa-user-check'}"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUserAccount(${u.id})" title="Eliminar cuenta" ${isCurrent ? 'disabled' : ''}><i class="fas fa-trash"></i></button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openUserModal(id = null) {
+  const u = id ? users.find(x => Number(x.id) === Number(id)) : null;
+  document.getElementById('user-id').value = u ? u.id : '';
+  document.getElementById('user-fullname').value = u ? u.name : '';
+  document.getElementById('user-username').value = u ? u.username : '';
+  document.getElementById('user-password').value = '';
+  document.getElementById('user-role').value = u ? u.role : 'user';
+  document.getElementById('modal-user-title').innerHTML = u ? '<i class="fas fa-user-edit" style="color:var(--primary); margin-right:8px;"></i>Editar Usuario' : '<i class="fas fa-user-plus" style="color:var(--primary); margin-right:8px;"></i>Nuevo Usuario';
+  openModal('modal-user');
+}
+
+async function saveUserData() {
+  const id = document.getElementById('user-id').value;
+  const name = fixTextForExcel(document.getElementById('user-fullname').value);
+  const username = document.getElementById('user-username').value.trim().toLowerCase();
+  const pass = document.getElementById('user-password').value.trim();
+  const role = document.getElementById('user-role').value;
+
+  if (!name || !username) {
+    showToast('Complete el nombre y el usuario', 'error');
+    return;
+  }
+  if (!id && (!pass || pass.length < 4)) {
+    showToast('La contraseña debe tener al menos 4 caracteres', 'error');
+    return;
+  }
+  if (pass && pass.length < 4) {
+    showToast('La nueva contraseña debe tener al menos 4 caracteres', 'error');
+    return;
+  }
+
+  const dup = users.find(u => String(u.username).toLowerCase() === username && String(u.id) !== String(id));
+  if (dup) {
+    showToast('Ese nombre de usuario ya está registrado', 'error');
+    return;
+  }
+
+  const now = Date.now();
+
+  if (id) {
+    const idx = users.findIndex(u => String(u.id) === String(id));
+    if (idx >= 0) {
+      users[idx].name = name;
+      users[idx].username = username;
+      users[idx].role = role;
+      users[idx].updatedAt = now;
+      if (pass) users[idx].passHash = await hashSHA256(pass);
+    }
+  } else {
+    users.push({
+      id: now,
+      name,
+      username,
+      passHash: await hashSHA256(pass),
+      role,
+      active: true,
+      updatedAt: now
+    });
+  }
+
+  await broadcastFullSync();
+  renderUsersTable();
+  closeModal('modal-user');
+  showToast('Usuario guardado con contraseña cifrada');
+}
+
+async function toggleUserActive(id) {
+  const u = users.find(x => Number(x.id) === Number(id));
+  if (!u) return;
+  if (currentUser && Number(currentUser.id) === Number(u.id)) {
+    showToast('No puedes desactivar tu propia sesión activa', 'error');
+    return;
+  }
+  u.active = !(u.active !== false);
+  u.updatedAt = Date.now();
+  await broadcastFullSync();
+  renderUsersTable();
+  showToast(`Usuario ${u.active ? 'activado' : 'desactivado'}`);
+}
+
+async function deleteUserAccount(id) {
+  if (currentUser && Number(currentUser.id) === Number(id)) {
+    showToast('No puedes eliminar la cuenta en la que estás conectado', 'error');
+    return;
+  }
+  const adminsCount = users.filter(u => u.role === 'admin' && u.active !== false).length;
+  const target = users.find(u => Number(u.id) === Number(id));
+  if (target && target.role === 'admin' && adminsCount <= 1) {
+    showToast('No puedes eliminar al único Administrador del sistema', 'error');
+    return;
+  }
+
+  if (confirm(`¿Eliminar permanentemente la cuenta de "${target?.name}"?`)) {
+    users = users.filter(u => Number(u.id) !== Number(id));
+    markDeleted(deletedUsers, target ? target.id : id);
+    await broadcastFullSync();
+    renderUsersTable();
+    showToast('Usuario eliminado', 'error');
+  }
+}
+
+// =============================================================
+// MÓDULO: VENTAS Y SALIDAS POR MATERIAL (CORREGIDO BÚSQUEDA Y AUTO-SELECCIÓN)
+// =============================================================
+function populateVentasMaterialSelect(filterText = '') {
+  const sel = document.getElementById('vm-product-select');
+  if (!sel) return;
+  const currentVal = sel.value;
+  const q = normalizeSearchText(filterText);
+
+  const matched = products.filter(p => {
+    if (!q) return true;
+    const clave = normalizeSearchText(p.clave);
+    const desc = normalizeSearchText(p.descripcion);
+    const ref = normalizeSearchText(p.factura);
+    return clave.includes(q) || desc.includes(q) || ref.includes(q);
+  }).sort((a, b) => normSortText(a.descripcion).localeCompare(normSortText(b.descripcion), 'es'));
+
+  sel.innerHTML = '<option value="all">-- Todos los materiales (Consolidado General) --</option>' +
+    matched.map(p => `<option value="${p.id}">[${esc(p.clave)}] ${esc(p.descripcion)} ${p.factura ? '(Ref: ' + esc(p.factura) + ')' : ''} (Stock: ${p.cantidad})</option>`).join('');
+
+  if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
+    sel.value = currentVal;
+  }
+}
+
+function filterVentasMaterialDropdown() {
+  const txt = document.getElementById('vm-search').value;
+  populateVentasMaterialSelect(txt);
+  
+  const sel = document.getElementById('vm-product-select');
+  if (sel && txt.trim() !== '') {
+    const firstValid = Array.from(sel.options).find(o => o.value !== 'all');
+    if (firstValid) {
+      sel.value = firstValid.value;
+    } else {
+      sel.value = 'all';
+    }
+  } else if (sel && txt.trim() === '') {
+    sel.value = 'all';
+  }
+  
+  renderVentasMaterial();
+}
+
+function onVentasMaterialPeriodChange() {
+  const mode = document.getElementById('vm-period-filter').value;
+  const fromEl = document.getElementById('vm-date-from');
+  const toEl = document.getElementById('vm-date-to');
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+
+  if (mode === 'all') {
+    fromEl.value = '';
+    toEl.value = '';
+  } else if (mode === 'month') {
+    fromEl.value = `${y}-${m}-01`;
+    toEl.value = `${y}-${m}-${d}`;
+  } else if (mode === 'current-year') {
+    fromEl.value = `${y}-01-01`;
+    toEl.value = `${y}-${m}-${d}`;
+  } else if (mode === 'last-12') {
+    const past = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const py = past.getFullYear();
+    const pm = String(past.getMonth() + 1).padStart(2, '0');
+    fromEl.value = `${py}-${pm}-01`;
+    toEl.value = `${y}-${m}-${d}`;
+  }
+  renderVentasMaterial();
+}
+
+function getVentasMaterialData() {
+  const pid = document.getElementById('vm-product-select')?.value || 'all';
+  const fromDate = (document.getElementById('vm-date-from')?.value || '').trim();
+  const toDate = (document.getElementById('vm-date-to')?.value || '').trim();
+
+  const lines = [];
+  ventas.forEach(v => {
+    const vDate = normalizeISODate(v.fecha) || v.fecha || '';
+    if (fromDate && vDate < fromDate) return;
+    if (toDate && vDate > toDate) return;
+
+    (v.items || []).forEach(item => {
+      if (pid !== 'all' && String(item.productId) !== String(pid)) return;
+      const qty = Number(item.cantidad) || 0;
+      const price = Number(item.precio) || 0;
+      lines.push({
+        fecha: vDate,
+        folio: v.folio || '',
+        cliente: v.cliente || 'Público',
+        productId: item.productId,
+        clave: item.clave || '',
+        descripcion: item.descripcion || '',
+        unidad: item.unidad || 'PIEZA',
+        cantidad: qty,
+        precio: price,
+        total: qty * price,
+        month: vDate.slice(0, 7) || 'S/F'
+      });
+    });
+  });
+
+  return lines;
+}
+
+function renderVentasMaterial() {
+  const pid = document.getElementById('vm-product-select')?.value || 'all';
+  const prod = products.find(p => String(p.id) === String(pid));
+  const badge = document.getElementById('vm-badge-clave');
+  if (badge) badge.textContent = prod ? `${prod.clave} | Stock: ${prod.cantidad}` : 'GENERAL';
+
+  const lines = getVentasMaterialData();
+  const totalPiezas = lines.reduce((s, l) => s + l.cantidad, 0);
+  const totalImporte = lines.reduce((s, l) => s + l.total, 0);
+  const totalFolios = new Set(lines.map(l => l.folio)).size;
+
+  const monthMap = new Map();
+  lines.forEach(l => {
+    const m = l.month;
+    const prev = monthMap.get(m) || { month: m, folios: new Set(), piezas: 0, total: 0 };
+    prev.folios.add(l.folio);
+    prev.piezas += l.cantidad;
+    prev.total += l.total;
+    monthMap.set(m, prev);
+  });
+  const monthlyList = Array.from(monthMap.values()).sort((a, b) => String(b.month).localeCompare(String(a.month)));
+
+  const clientMap = new Map();
+  lines.forEach(l => {
+    const c = l.cliente || 'Público';
+    const prev = clientMap.get(c) || { cliente: c, folios: new Set(), piezas: 0, total: 0 };
+    prev.folios.add(l.folio);
+    prev.piezas += l.cantidad;
+    prev.total += l.total;
+    clientMap.set(c, prev);
+  });
+  const clientsList = Array.from(clientMap.values()).sort((a, b) => b.piezas - a.piezas || b.total - a.total);
+
+  const mesPico = monthlyList.length ? [...monthlyList].sort((a, b) => b.piezas - a.piezas)[0] : null;
+  document.getElementById('vm-kpi-grid').innerHTML = `
+    <div class="stat-card"><div class="label">Total Piezas Salidas</div><div class="value" style="color:#059669;">${totalPiezas.toLocaleString('es-MX')}</div></div>
+    <div class="stat-card"><div class="label">Importe Total Salidas</div><div class="value" style="color:#064e3b;">$${fmt(totalImporte)}</div></div>
+    <div class="stat-card"><div class="label">Folios / Compras</div><div class="value">${totalFolios}</div></div>
+    <div class="stat-card"><div class="label">Mes con Mayor Salida</div><div class="value" style="font-size:1.45rem; color:#d97706;">${mesPico ? `${mesPico.month} (${mesPico.piezas})` : '—'}</div></div>
+  `;
+
+  document.getElementById('vm-monthly-tbody').innerHTML = !monthlyList.length
+    ? '<tr><td colspan="4" style="text-align:center; color:#94a3b8;">Sin movimientos de venta registrados en el periodo</td></tr>'
+    : monthlyList.map(m => `
+      <tr>
+        <td><strong>${esc(m.month)}</strong></td>
+        <td>${m.folios.size}</td>
+        <td style="font-weight:700; color:#059669;">${m.piezas.toLocaleString('es-MX')}</td>
+        <td style="font-weight:800;">$${fmt(m.total)}</td>
+      </tr>
+    `).join('');
+
+  document.getElementById('vm-clientes-tbody').innerHTML = !clientsList.length
+    ? '<tr><td colspan="4" style="text-align:center; color:#94a3b8;">Sin registros de solicitantes</td></tr>'
+    : clientsList.slice(0, 50).map(c => `
+      <tr>
+        <td><strong>${esc(c.cliente)}</strong></td>
+        <td>${c.folios.size}</td>
+        <td style="font-weight:700; color:#059669;">${c.piezas.toLocaleString('es-MX')}</td>
+        <td style="font-weight:800;">$${fmt(c.total)}</td>
+      </tr>
+    `).join('');
+
+  const detailSorted = [...lines].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.folio).localeCompare(String(a.folio)));
+  document.getElementById('vm-detail-tbody').innerHTML = !detailSorted.length
+    ? '<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Sin salidas registradas</td></tr>'
+    : detailSorted.slice(0, 150).map(l => `
+      <tr>
+        <td><small>${esc(l.fecha)}</small></td>
+        <td><strong style="color:#059669;">${esc(l.folio)}</strong></td>
+        <td>${esc(l.cliente)}</td>
+        <td style="font-weight:700;">${l.cantidad} ${esc(l.unidad)}</td>
+        <td>$${fmt(l.precio)}</td>
+        <td style="font-weight:800; color:#064e3b;">$${fmt(l.total)}</td>
+      </tr>
+    `).join('');
+}
+
+async function exportVentasMaterialExcel() {
+  const pid = document.getElementById('vm-product-select')?.value || 'all';
+  const prod = products.find(p => String(p.id) === String(pid));
+  const fromDate = (document.getElementById('vm-date-from')?.value || '').trim();
+  const toDate = (document.getElementById('vm-date-to')?.value || '').trim();
+  const periodoTexto = (fromDate || toDate) ? `Periodo: ${fromDate || 'Inicio'} al ${toDate || 'Hoy'}` : 'Todo el Historial';
+
+  const lines = getVentasMaterialData();
+  if (!lines.length) {
+    showToast('No hay datos para exportar en este periodo', 'error');
+    return;
+  }
+
+  const monthMap = new Map();
+  lines.forEach(l => {
+    const m = l.month;
+    const prev = monthMap.get(m) || { month: m, folios: new Set(), piezas: 0, total: 0 };
+    prev.folios.add(l.folio);
+    prev.piezas += l.cantidad;
+    prev.total += l.total;
+    monthMap.set(m, prev);
+  });
+  const monthlyList = Array.from(monthMap.values()).sort((a, b) => String(b.month).localeCompare(String(a.month)));
+
+  const clientMap = new Map();
+  lines.forEach(l => {
+    const c = l.cliente || 'Público';
+    const prev = clientMap.get(c) || { cliente: c, folios: new Set(), piezas: 0, total: 0 };
+    prev.folios.add(l.folio);
+    prev.piezas += l.cantidad;
+    prev.total += l.total;
+    clientMap.set(c, prev);
+  });
+  const clientsList = Array.from(clientMap.values()).sort((a, b) => b.piezas - a.piezas);
+
+  const sheets = [
+    {
+      name: 'Resumen Mensual',
+      headers: ['Mes / Periodo', 'No. Folios / Compras', 'Piezas Surtidas', 'Total Importe ($)'],
+      widths: [18, 22, 18, 22],
+      rows: monthlyList.map(m => [m.month, m.folios.size, m.piezas, m.total])
+    },
+    {
+      name: 'Top Solicitantes',
+      headers: ['Solicitante / Area', 'No. Folios', 'Piezas Surtidas', 'Total Importe ($)'],
+      widths: [36, 16, 18, 22],
+      rows: clientsList.map(c => [c.cliente, c.folios.size, c.piezas, c.total])
+    },
+    {
+      name: 'Detalle de Salidas',
+      headers: ['Fecha', 'Folio', 'Solicitante / Destino', 'Clave', 'Material', 'Unidad', 'Cantidad', 'Precio Unit. ($)', 'Total Importe ($)'],
+      widths: [14, 14, 32, 16, 60, 14, 14, 18, 20],
+      rows: lines.map(l => [l.fecha, l.folio, l.cliente, l.clave, l.descripcion, l.unidad, l.cantidad, l.precio, l.total])
+    }
+  ];
+
+  const stamp = todayISO().replace(/-/g, '');
+  const cleanFileName = `Ventas_${(prod ? prod.clave : 'General').replace(/[^a-zA-Z0-9_-]/g, '_')}_${stamp}.xlsx`;
+  await downloadStyledWorkbook(sheets, cleanFileName);
+  showToast(`Reporte generado (${periodoTexto}): ${sheets.length} hoja(s)`);
+}
+
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+  document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
+  const section = document.getElementById('section-' + name);
+  const nav = document.getElementById('nav-' + name);
+  if (!section || !nav) { showToast('Seccion no disponible', 'error'); return; }
+  section.style.display = 'block';
+  nav.classList.add('active');
+  document.getElementById('page-title').innerHTML = `<i class="${nav.querySelector('i').className}"></i> ${name.replace(/-/g, ' ').toUpperCase()}`;
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'inventario') { invPage = 1; renderInventario(); }
+  if (name === 'inv-fisico') renderInvFisico();
+  if (name === 'historial-ventas') renderHistorialVentas();
+  if (name === 'ventas-material') { populateVentasMaterialSelect(); renderVentasMaterial(); }
+  if (name === 'movimientos') renderMovimientos();
+  if (name === 'kardex') renderKardex();
+  if (name === 'config') renderUsersTable();
+  if (name === 'ventas') {
+    if (!editingVentaId) {
+      document.getElementById('venta-folio-input').value = currentFolio;
+      document.getElementById('venta-fecha').valueAsDate = new Date();
+    }
+    const btnVenta = document.getElementById('venta-save-btn');
+    if (btnVenta) btnVenta.innerHTML = editingVentaId ? '<i class="fas fa-save"></i> Guardar modificaci&oacute;n' : '<i class="fas fa-shopping-cart"></i> Finalizar Compra';
+    renderVentaItems();
+  }
+}
+
+function renderDashboard() {
+  const crit = products.filter(p => p.cantidad <= 5);
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="label">Materiales en Cat&aacute;logo</div><div class="value">${products.length}</div></div>
+    <div class="stat-card"><div class="label">Total Compras / Ingresos</div><div class="value" style="color:#059669">$${fmt(ventas.reduce((s,v)=>s+v.total,0))}</div></div>
+    <div class="stat-card"><div class="label">Stock Cr&iacute;tico (&le; 5)</div><div class="value" style="color:#ef4444">${crit.length}</div></div>
+  `;
+  document.getElementById('dash-critical-tbody').innerHTML = crit.slice(0,10).map(p => `<tr><td><span class="clave-cell">${esc(p.clave)}</span></td><td>${esc(p.descripcion)}</td><td>${esc(p.unidad)}</td><td>${stockBadge(p.cantidad)}</td></tr>`).join('');
+}
+
+function filterInventario() { invPage = 1; renderInventario(); }
+
+function normSortText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function sortInventarioList(list, sortSelectId = 'inv-sort') {
+  const sortEl = document.getElementById(sortSelectId);
+  const sortBy = sortEl ? sortEl.value : 'default';
+  const sorted = [...list];
+
+  const compareText = (a, b, field) => normSortText(a[field]).localeCompare(normSortText(b[field]), 'es', { numeric: true, sensitivity: 'base' });
+  const compareNumber = (a, b, field) => (Number(a[field]) || 0) - (Number(b[field]) || 0);
+
+  if (sortBy === 'nombre-az') sorted.sort((a, b) => compareText(a, b, 'descripcion'));
+  if (sortBy === 'nombre-za') sorted.sort((a, b) => compareText(b, a, 'descripcion'));
+  if (sortBy === 'clave-az') sorted.sort((a, b) => compareText(a, b, 'clave'));
+  if (sortBy === 'clave-za') sorted.sort((a, b) => compareText(b, a, 'clave'));
+  if (sortBy === 'stock-asc') sorted.sort((a, b) => compareNumber(a, b, 'cantidad'));
+  if (sortBy === 'stock-desc') sorted.sort((a, b) => compareNumber(b, a, 'cantidad'));
+  if (sortBy === 'precio-asc') sorted.sort((a, b) => compareNumber(a, b, 'precio'));
+  if (sortBy === 'precio-desc') sorted.sort((a, b) => compareNumber(b, a, 'precio'));
+
+  return sorted;
+}
+
+function normalizeSearchText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function productMatchesSearch(p, rawQuery) {
+  const q = normalizeSearchText(rawQuery);
+  if (!q) return true;
+  const words = q.split(/\s+/).filter(Boolean);
+  const haystack = [p.clave, p.factura, p.descripcion, p.unidad].map(normalizeSearchText).join(' ');
+  return words.every(word => haystack.includes(word));
+}
+
+function getInventarioFiltradoOrdenado() {
+  const q = document.getElementById('inv-search').value.toLowerCase().trim();
+  const f = document.getElementById('inv-stock-filter').value;
+
+  const list = products.filter(p => {
+    if (!productMatchesSearch(p, q)) return false;
+    if (f === 'nonzero') return p.cantidad > 0;
+    if (f === 'zero') return p.cantidad <= 0;
+    if (f === 'lt5') return p.cantidad < 5;
+    if (f === 'lt10') return p.cantidad < 10;
+    if (f === 'gt10') return p.cantidad > 10;
+    if (f === 'gt20') return p.cantidad > 20;
+    if (f === 'gt50') return p.cantidad > 50;
+    return true;
+  });
+
+  return sortInventarioList(list);
+}
+
+function renderInventario() {
+  const list = getInventarioFiltradoOrdenado();
+  const start = (invPage-1)*invPerPage;
+  document.getElementById('inv-tbody').innerHTML = list.slice(start, start+invPerPage).map(p => `
+    <tr class="${p.bloqueado ? 'product-blocked' : ''}">
+      <td><span class="clave-cell">${esc(p.clave)}</span></td>
+      <td>${esc(p.descripcion)}</td>
+      <td>${esc(p.unidad)}</td>
+      <td>$${fmt(p.precio)}</td>
+      <td>${stockBadge(p.cantidad)}</td>
+      <td>${p.bloqueado ? '<span class="badge badge-blocked"><i class="fas fa-lock"></i> BLOQUEADO</span>' : '<span class="badge badge-unlocked"><i class="fas fa-lock-open"></i> DISPONIBLE</span>'}</td>
+      <td class="admin-only">
+        <div style="display:flex; gap:7px; flex-wrap:wrap;">
+          <button class="btn btn-entry btn-sm" onclick="openEntradaModal(${p.id})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
+          <button class="btn btn-outline btn-sm" onclick="openProductModal(${p.id})">Gestionar</button>
+          <button class="btn ${p.bloqueado ? 'btn-success' : 'btn-warning'} btn-sm" onclick="toggleProductLock(${p.id})"><i class="fas ${p.bloqueado ? 'fa-lock-open' : 'fa-lock'}"></i> ${p.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  renderPagination('inv-pagination', invPage, Math.ceil(list.length/invPerPage), 'setInvPage');
+}
+
+function setInvPage(p) { invPage = p; renderInventario(); }
+function setIfPage(p) { ifPage = p; renderInvFisico(); }
+
+function refreshStock() { renderInventario(); showToast('Stock refrescado'); }
+
+function toggleProductLock(id) {
+  if (!currentUser || currentUser.role !== 'admin') {
+    showToast('Solo el administrador puede bloquear o desbloquear productos', 'error');
+    return;
+  }
+  const p = products.find(x => String(x.id) === String(id));
+  if (!p) { showToast('Producto no encontrado', 'error'); return; }
+
+  const nextState = !p.bloqueado;
+  const action = nextState ? 'bloquear' : 'desbloquear';
+  const message = nextState
+    ? `¿Bloquear "${p.descripcion}"? No podra agregarse a nuevas compras hasta que se desbloquee.`
+    : `¿Desbloquear "${p.descripcion}"? Volvera a estar disponible para compra.`;
+
+  if (!confirm(message)) return;
+  p.bloqueado = nextState;
+  p.updatedAt = Date.now();
+  broadcastFullSync();
+  renderInventario();
+  renderDashboard();
+  if (document.getElementById('venta-search-prod')?.value.trim().length >= 2) searchVentaProduct();
+  showToast(`Material ${action === 'bloquear' ? 'bloqueado' : 'desbloqueado'} correctamente`);
+}
+
+function openProductModal(id) {
+  const p = id ? products.find(x => x.id === id) : null;
+  document.getElementById('prod-id').value = p ? p.id : '';
+  document.getElementById('prod-clave').value = p ? p.clave : '';
+  document.getElementById('prod-unidad').value = p ? p.unidad : '';
+  document.getElementById('prod-descripcion').value = p ? p.descripcion : '';
+  document.getElementById('prod-precio').value = p ? p.precio : '';
+  const stockInput = document.getElementById('prod-cantidad');
+  stockInput.value = p ? p.cantidad : '';
+  stockInput.readOnly = !!p;
+  stockInput.title = p ? 'Para aumentar existencias use el boton Dar entrada.' : 'Stock inicial del producto';
+  const oldNote = document.getElementById('prod-stock-note');
+  if (oldNote) oldNote.remove();
+  if (p) {
+    const note = document.createElement('div');
+    note.id = 'prod-stock-note';
+    note.className = 'stock-readonly-note';
+    note.innerHTML = '<i class="fas fa-circle-info"></i> Para agregar existencias use <strong>Dar entrada</strong> desde Inventario.';
+    stockInput.parentElement.appendChild(note);
+  }
+  document.getElementById('prod-factura').value = p && p.factura ? p.factura : ''; 
+  
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('prod-fecha-entrada').value = p && p.fecha_entrada ? p.fecha_entrada : today;
+  
+  document.getElementById('btn-delete-prod').style.display = p ? 'inline-flex' : 'none';
+  openModal('modal-producto');
+}
+
+function saveProduct() {
+  const id = document.getElementById('prod-id').value;
+  const clave = fixTextForExcel(document.getElementById('prod-clave').value);
+  const unidad = fixTextForExcel(document.getElementById('prod-unidad').value);
+  const descripcion = fixTextForExcel(document.getElementById('prod-descripcion').value);
+  const factura = fixTextForExcel(document.getElementById('prod-factura').value);
+  const fechaEntrada = document.getElementById('prod-fecha-entrada').value || (factura ? todayISO() : '');
+  const precio = Number(document.getElementById('prod-precio').value);
+  const qty = Number(document.getElementById('prod-cantidad').value);
+
+  if (!clave || !descripcion || !unidad) {
+    showToast('Complete clave, descripcion y unidad', 'error');
+    return;
+  }
+  if (!Number.isFinite(precio) || precio < 0 || !Number.isFinite(qty) || qty < 0) {
+    showToast('Precio y stock deben ser numeros validos y no negativos', 'error');
+    return;
+  }
+
+  const now = Date.now();
+  const d = { clave, unidad, descripcion, precio, cantidad: qty, factura, fecha_entrada: fechaEntrada, updatedAt: now };
+
+  if (id) {
+    const i = products.findIndex(x => String(x.id) === String(id));
+    if (i < 0) { showToast('Material no encontrado', 'error'); return; }
+    const currentQty = Number(products[i].cantidad) || 0;
+    products[i] = { ...products[i], ...d, cantidad: currentQty };
+  } else {
+    const newP = { id: now, bloqueado: false, ...d };
+    products.push(newP);
+    if (qty > 0) addMov('ENTRADA', newP.id, qty, 'Nuevo producto', factura, '', { fecha_factura: fechaEntrada });
+  }
+
+  closeModal('modal-producto');
+  broadcastFullSync();
+  renderInventario();
+  renderDashboard();
+  showToast('Material guardado y sincronizado');
+}
+
+function openEntradaModal(id) {
+  if (!currentUser || currentUser.role !== 'admin') {
+    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    return;
+  }
+  const p = products.find(x => String(x.id) === String(id));
+  if (!p) { showToast('Material no encontrado', 'error'); return; }
+
+  document.getElementById('entrada-prod-id').value = p.id;
+  document.getElementById('entrada-clave').textContent = p.clave || 'N/A';
+  document.getElementById('entrada-descripcion').value = p.descripcion || '';
+  document.getElementById('entrada-stock-actual').textContent = Number(p.cantidad) || 0;
+  document.getElementById('entrada-stock-resultante').textContent = Number(p.cantidad) || 0;
+  document.getElementById('entrada-cantidad').value = '';
+  document.getElementById('entrada-factura').value = '';
+  document.getElementById('entrada-fecha').value = todayISO();
+  document.getElementById('entrada-precio').value = Number(p.precio) || 0;
+  document.getElementById('entrada-nota').value = 'Entrada de material / compra';
+  openModal('modal-entrada-producto');
+  setTimeout(() => document.getElementById('entrada-cantidad')?.focus(), 50);
+}
+
+function updateEntradaPreview() {
+  const id = document.getElementById('entrada-prod-id').value;
+  const p = products.find(x => String(x.id) === String(id));
+  if (!p) return;
+  const actual = Number(p.cantidad) || 0;
+  const entrada = Number(document.getElementById('entrada-cantidad').value) || 0;
+  document.getElementById('entrada-stock-actual').textContent = actual;
+  document.getElementById('entrada-stock-resultante').textContent = actual + Math.max(entrada, 0);
+}
+
+function saveProductEntry() {
+  if (!currentUser || currentUser.role !== 'admin') {
+    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    return;
+  }
+  const id = document.getElementById('entrada-prod-id').value;
+  const p = products.find(x => String(x.id) === String(id));
+  if (!p) { showToast('Material no encontrado', 'error'); return; }
+
+  const qty = Number(document.getElementById('entrada-cantidad').value);
+  const factura = fixTextForExcel(document.getElementById('entrada-factura').value);
+  const fecha = document.getElementById('entrada-fecha').value || todayISO();
+  const priceRaw = document.getElementById('entrada-precio').value;
+  const precio = priceRaw === '' ? Number(p.precio) || 0 : Number(priceRaw);
+  const nota = fixTextForExcel(document.getElementById('entrada-nota').value) || 'Entrada de material';
+
+  if (!Number.isFinite(qty) || qty <= 0) {
+    showToast('Ingrese una cantidad de entrada mayor que cero', 'error');
+    return;
+  }
+  if (!Number.isFinite(precio) || precio < 0) {
+    showToast('El precio debe ser un numero valido y no negativo', 'error');
+    return;
+  }
+
+  p.cantidad = (Number(p.cantidad) || 0) + qty;
+  p.precio = precio;
+  if (factura) p.factura = factura;
+  p.fecha_entrada = fecha;
+  p.updatedAt = Date.now();
+
+  addMov('ENTRADA', p.id, qty, nota, factura, '', { fecha_factura: fecha });
+  closeModal('modal-entrada-producto');
+  broadcastFullSync();
+  renderInventario();
+  renderDashboard();
+  renderMovimientos();
+  renderKardex();
+  showToast(`Entrada registrada: +${qty} ${p.unidad || 'unidad(es)'}`);
+}
+
+function deleteProduct() {
+  const id = document.getElementById('prod-id').value;
+  if (confirm('¿Eliminar este material del catalogo?')) { 
+    const target = products.find(x => x.id == id);
+    products = products.filter(x => x.id != id); 
+    markDeleted(deletedProducts, target ? target.id : id);
+    closeModal('modal-producto'); 
+    broadcastFullSync();
+    renderInventario(); 
+    showToast('Material eliminado', 'error'); 
+  }
+}
+
+// INVENTARIO FÍSICO
+function filterInvFisico() { ifPage = 1; renderInvFisico(); }
+
+function getInvFisicoFiltradoOrdenado() {
+  const q = document.getElementById('if-search').value.trim();
+  const list = products.filter(p => productMatchesSearch(p, q));
+  return sortInventarioList(list, 'if-sort');
+}
+
+function renderInvFisico() {
+  const list = getInvFisicoFiltradoOrdenado();
+  const start = (ifPage-1)*ifPerPage;
+  document.getElementById('if-tbody').innerHTML = list.slice(start, start+ifPerPage).map(p => {
+    const val = ifCounts[p.id] !== undefined ? ifCounts[p.id] : '';
+    const diff = val !== '' ? (val - p.cantidad) : 0;
+    return `<tr>
+      <td><span class="clave-cell">${esc(p.clave)}</span></td>
+      <td>${esc(p.descripcion)}</td>
+      <td>${p.cantidad}</td>
+      <td><input type="number" value="${val}" oninput="ifCounts[${p.id}]=parseFloat(this.value)||0; renderInvFRow(${p.id},${p.cantidad},this)" style="width:80px; padding:5px; border:1px solid #ddd; border-radius:4px; text-align:center;"></td>
+      <td id="if-diff-${p.id}" style="font-weight:700; color:${diff>0?'#059669':diff<0?'#ef4444':'#64748b'}">${val !== '' ? (diff > 0 ? '+'+diff : diff) : '—'}</td>
+    </tr>`;
+  }).join('');
+  renderPagination('if-pagination', ifPage, Math.ceil(list.length/ifPerPage), 'setIfPage');
+}
+
+function renderInvFRow(id, sys, el) { 
+  const d = ifCounts[id] - sys; 
+  const c = document.getElementById('if-diff-'+id); 
+  if (!c) return;
+  c.textContent = d > 0 ? '+'+d : d; 
+  c.style.color = d > 0 ? '#059669' : d < 0 ? '#ef4444' : '#64748b'; 
+}
+
+function resetInvFisico() { ifCounts = {}; renderInvFisico(); }
+
+function applyInvFisico() { 
+  if (confirm('¿Actualizar stock del sistema con el conteo fisico?')) { 
+    const now = Date.now();
+    Object.keys(ifCounts).forEach(id => { 
+      const p = products.find(x => x.id == id); 
+      if (p) {
+        const diff = ifCounts[id] - p.cantidad;
+        if (diff !== 0) addMov(diff > 0 ? 'ENTRADA' : 'SALIDA', id, Math.abs(diff), "Inv. Fisico");
+        p.cantidad = ifCounts[id]; 
+        p.updatedAt = now;
+      }
+    }); 
+    ifCounts = {}; 
+    broadcastFullSync(); 
+    renderInvFisico(); 
+    renderDashboard();
+    showToast('Inventario fisico actualizado'); 
+  } 
+}
+
+// BÚSQUEDA Y CARRITO DE COMPRAS
+function searchVentaProduct() {
+  const input = document.getElementById('venta-search-prod');
+  const acList = document.getElementById('venta-ac-list');
+  const q = input.value.trim();
+
+  if (q.length < 2) {
+    ventaSearchResults = [];
+    acList.style.display = 'none';
+    acList.innerHTML = '';
+    return;
+  }
+
+  const queryNorm = normalizeSearchText(q);
+  const results = products
+    .filter(p => productMatchesSearch(p, queryNorm))
+    .sort((a, b) => {
+      const ad = normalizeSearchText(a.descripcion);
+      const bd = normalizeSearchText(b.descripcion);
+      const ac = normalizeSearchText(a.clave);
+      const bc = normalizeSearchText(b.clave);
+
+      const aStarts = ad.startsWith(queryNorm) || ac.startsWith(queryNorm);
+      const bStarts = bd.startsWith(queryNorm) || bc.startsWith(queryNorm);
+      if (aStarts !== bStarts) return aStarts ? -1 : 1;
+
+      const aStock = Number(a.cantidad) > 0 && !a.bloqueado;
+      const bStock = Number(b.cantidad) > 0 && !b.bloqueado;
+      if (aStock !== bStock) return aStock ? -1 : 1;
+
+      return ad.localeCompare(bd, 'es', { numeric: true, sensitivity: 'base' });
+    });
+
+  ventaSearchResults = results;
+
+  if (!results.length) {
+    acList.innerHTML = '<div class="ac-item" style="cursor:default; color:#64748b;">Sin resultados. Revise la clave o una palabra de la descripcion.</div>';
+    acList.style.display = 'block';
+    return;
+  }
+
+  acList.innerHTML = results.map(p => {
+    const out = Number(p.cantidad) <= 0;
+    const blocked = p.bloqueado === true;
+    return `<div class="ac-item ${(out || blocked) ? 'out-of-stock' : ''}" onclick="addVentaItem(${p.id})">
+      <strong>${esc(p.descripcion)}</strong> ${blocked ? '<span style="font-weight:bold; color:#b91c1c;">[BLOQUEADO]</span>' : (out ? '<span style="font-weight:bold; color:#ef4444;">[AGOTADO]</span>' : '')}<br>
+      <small>${esc(p.clave)} | Unidad: ${esc(p.unidad || 'PIEZA')} | $${fmt(p.precio)} | Stock: ${p.cantidad}${blocked ? ' | NO DISPONIBLE' : ''}</small>
+    </div>`;
+  }).join('') + `<div class="ac-item" style="cursor:default; text-align:center; color:#64748b; font-size:0.8rem;">${results.length} resultado(s)</div>`;
+  acList.style.display = 'block';
+}
+
+function getStockDisponibleParaVenta(productId) {
+  const p = products.find(x => x.id == productId) || {};
+  let disponible = Number(p.cantidad) || 0;
+
+  if (editingVentaId) {
+    const oldVenta = ventas.find(v => v.id === editingVentaId);
+    if (oldVenta) {
+      disponible += (oldVenta.items || [])
+        .filter(i => String(i.productId) === String(productId))
+        .reduce((sum, i) => sum + (Number(i.cantidad) || 0), 0);
+    }
+  }
+
+  return disponible;
+}
+
+function addVentaItem(id) {
+  const p = products.find(x => String(x.id) === String(id));
+  if (!p) { showToast('Material no encontrado', 'error'); return; }
+  if (p.bloqueado) { showToast('Este material esta BLOQUEADO y no puede seleccionarse', 'error'); return; }
+  const disponible = getStockDisponibleParaVenta(id);
+  if (disponible <= 0) { showToast('Material sin existencias', 'error'); return; }
+
+  const ex = ventaItems.find(i => String(i.productId) === String(id));
+  if (ex) {
+    if ((Number(ex.cantidad) || 0) + 1 > disponible) { showToast('Stock insuficiente', 'error'); return; }
+    ex.cantidad = (Number(ex.cantidad) || 0) + 1;
+  } else {
+    ventaItems.push({
+      productId: p.id,
+      clave: p.clave,
+      descripcion: p.descripcion,
+      unidad: p.unidad || 'PIEZA',
+      precio: Number(p.precio) || 0,
+      cantidad: 1
+    });
+  }
+
+  ventaSearchResults = [];
+  document.getElementById('venta-ac-list').style.display = 'none';
+  document.getElementById('venta-search-prod').value = '';
+  renderVentaItems();
+  showToast('Material agregado');
+}
+
+function saveVenta() {
+  if (!ventaItems.length) { showToast('Agregue materiales', 'error'); return; }
+
+  const folio = fixTextForExcel(document.getElementById('venta-folio-input').value || currentFolio);
+  const fecha = document.getElementById('venta-fecha').value;
+  const cliente = fixTextForExcel(document.getElementById('venta-cliente').value || 'Público');
+  if (!folio) { showToast('Ingrese un folio valido', 'error'); return; }
+  if (!fecha) { showToast('Seleccione la fecha', 'error'); return; }
+
+  const ventaYearMonth = String(fecha).slice(0, 7);
+
+  const duplicate = ventas.some(x =>
+    String(x.id) !== String(editingVentaId || '') &&
+    normalizeSearchText(x.folio) === normalizeSearchText(folio) &&
+    String(x.fecha || '').slice(0, 7) === ventaYearMonth
+  );
+
+  if (duplicate) {
+    showToast('Ese folio ya esta registrado en el mismo mes', 'error');
+    return;
+  }
+
+  const cleanVentaItems = [];
+  for (const item of ventaItems) {
+    const prod = products.find(x => String(x.id) === String(item.productId));
+    const cantidad = Number(item.cantidad);
+    const precio = Number(item.precio);
+    if (!prod) { showToast(`No se encontro el material ${item.clave || ''}`, 'error'); return; }
+    if (prod.bloqueado) { showToast(`El material ${prod.descripcion} esta bloqueado`, 'error'); return; }
+    if (!Number.isFinite(cantidad) || cantidad <= 0) { showToast('Todas las cantidades deben ser mayores que cero', 'error'); return; }
+    if (!Number.isFinite(precio) || precio < 0) { showToast('Se detecto un precio invalido', 'error'); return; }
+    const disponible = getStockDisponibleParaVenta(item.productId);
+    if (cantidad > disponible) { showToast(`Stock insuficiente para ${prod.descripcion}`, 'error'); return; }
+    cleanVentaItems.push({
+      ...item,
+      clave: fixTextForExcel(item.clave || prod.clave),
+      descripcion: fixTextForExcel(item.descripcion || prod.descripcion),
+      unidad: fixTextForExcel(item.unidad || prod.unidad || 'PIEZA'),
+      precio,
+      cantidad
+    });
+  }
+
+  const isEditing = editingVentaId !== null && editingVentaId !== undefined;
+  const now = Date.now();
+  const v = {
+    id: isEditing ? editingVentaId : now,
+    folio,
+    fecha,
+    cliente,
+    items: cleanVentaItems,
+    total: cleanVentaItems.reduce((s, i) => s + i.cantidad * i.precio, 0),
+    updatedAt: now
+  };
+
+  let old = null;
+  if (isEditing) {
+    const oldIndex = ventas.findIndex(x => String(x.id) === String(editingVentaId));
+    if (oldIndex < 0) { showToast('No se encontro la compra a modificar', 'error'); return; }
+    old = ventas[oldIndex];
+    (old.items || []).forEach(i => {
+      const p = products.find(x => String(x.id) === String(i.productId));
+      if (p) {
+        p.cantidad = (Number(p.cantidad) || 0) + (Number(i.cantidad) || 0);
+        p.updatedAt = now;
+      }
+    });
+    ventas[oldIndex] = v;
+  } else {
+    ventas.unshift(v);
+    if (folio === currentFolio) {
+      const n = parseInt(currentFolio.replace(/[^0-9]/g, ''), 10) || 0;
+      const pr = currentFolio.replace(/[0-9]/g, '') || 'C-';
+      currentFolio = pr + String(n + 1).padStart(3, '0');
+      document.getElementById('folio-val').textContent = currentFolio;
+    }
+  }
+
+  v.items.forEach(i => {
+    const p = products.find(x => String(x.id) === String(i.productId));
+    if (p) {
+      p.cantidad = (Number(p.cantidad) || 0) - i.cantidad;
+      p.updatedAt = now;
+    }
+    if (!isEditing) addMov('SALIDA', i.productId, i.cantidad, 'Entrega / Compra', v.folio, v.cliente);
+  });
+
+  if (isEditing) logVentaModificada(old, v);
+
+  clearVenta();
+  broadcastFullSync();
+  renderDashboard();
+  showToast(isEditing ? 'Registro modificado' : 'Compra registrada y sincronizada');
+  viewVenta(v.id);
+}
+
+function resumirItemsVenta(items) {
+  const map = new Map();
+  (items || []).forEach(i => {
+    const key = String(i.productId);
+    const prev = map.get(key) || { item: i, cantidad: 0 };
+    prev.cantidad += parseFloat(i.cantidad) || 0;
+    prev.item = { ...prev.item, ...i, cantidad: prev.cantidad };
+    map.set(key, prev);
+  });
+  return map;
+}
+
+function logVentaModificada(oldVenta, newVenta) {
+  const oldMap = resumirItemsVenta(oldVenta.items);
+  const newMap = resumirItemsVenta(newVenta.items);
+  const ids = Array.from(new Set([...oldMap.keys(), ...newMap.keys()]));
+  let cambiosStock = 0;
+
+  ids.forEach(id => {
+    const oldReg = oldMap.get(id);
+    const newReg = newMap.get(id);
+    const oldQty = oldReg ? oldReg.cantidad : 0;
+    const newQty = newReg ? newReg.cantidad : 0;
+    const diff = newQty - oldQty;
+    if (diff === 0) return;
+
+    const item = (newReg && newReg.item) || (oldReg && oldReg.item) || {};
+    const unidad = fixTextForExcel(item.unidad || 'PIEZA');
+    let detalle = '';
+    if (oldQty === 0) detalle = `Material agregado a compra modificada: ${newQty} ${unidad}. Stock disminuye.`;
+    else if (newQty === 0) detalle = `Material retirado de compra modificada: ${oldQty} ${unidad}. Stock aumenta.`;
+    else if (diff > 0) detalle = `Compra modificada: aumento de ${oldQty} a ${newQty} ${unidad}. Stock disminuye ${Math.abs(diff)}.`;
+    else detalle = `Compra modificada: bajo de ${oldQty} a ${newQty} ${unidad}. Stock aumenta ${Math.abs(diff)}.`;
+
+    addMov('MODIFICADA', item.productId || id, Math.abs(diff), detalle, newVenta.folio, newVenta.cliente);
+    cambiosStock++;
+  });
+
+  const cambioDatos =
+    fixTextForExcel(oldVenta.folio || '') !== fixTextForExcel(newVenta.folio || '') ||
+    fixTextForExcel(oldVenta.cliente || '') !== fixTextForExcel(newVenta.cliente || '') ||
+    fixTextForExcel(oldVenta.fecha || '') !== fixTextForExcel(newVenta.fecha || '');
+
+  if (!cambiosStock && cambioDatos) {
+    addMov('MODIFICADA', '', 0, 'Compra modificada: se actualizaron datos generales.', newVenta.folio, newVenta.cliente, { clave: '—', desc: 'Modificacion sin cambio de stock' });
+  }
+}
+
+function getMovimientoFolio(m) {
+  const direct = String(m && m.folio ? m.folio : '').trim();
+  if (direct) return direct;
+  const note = String(m && m.note ? m.note : '');
+  const match = note.match(/\b(C|F)[-\s]?\d+\b/i);
+  return match ? match[0].replace(/\s+/g, '').toUpperCase() : '';
+}
+
+function getMovimientoCliente(m) {
+  const saved = String(m && m.cliente ? m.cliente : '').trim();
+  if (saved) return saved;
+  const folio = getMovimientoFolio(m).toLowerCase();
+  if (!folio) return '';
+  const venta = ventas.find(v => String(v.folio || '').toLowerCase() === folio);
+  return venta ? String(venta.cliente || '') : '';
+}
+
+function syncMovimientoClientesFromVentas() {
+  let changed = false;
+  movimientos.forEach(m => {
+    const cliente = getMovimientoCliente(m);
+    const folio = getMovimientoFolio(m);
+    if (cliente && m.cliente !== cliente) { m.cliente = cliente; changed = true; }
+    if (folio && m.folio !== folio) { m.folio = folio; changed = true; }
+  });
+}
+
+function getMovTimestamp(m) {
+  if (m.updatedAt) return Number(m.updatedAt);
+  if (Number(m.id) && Number(m.id) > 1000000000000) return Number(m.id);
+  const p = Date.parse(m.date);
+  return !isNaN(p) ? p : 0;
+}
+
+function renderMovimientos() {
+  const rawQ = document.getElementById('mov-search').value.trim();
+  const q = normalizeSearchText(rawQ);
+  const words = q.split(/\s+/).filter(Boolean);
+  const f = document.getElementById('mov-type-filter').value;
+  const sortMode = document.getElementById('mov-sort')?.value || 'reciente';
+
+  const filtered = movimientos.filter(m => {
+    const cliente = getMovimientoCliente(m);
+    const folio = getMovimientoFolio(m);
+    const tipo = getMovementTypeLabel(m.type);
+    const haystack = [m.desc, m.clave, m.note, folio, cliente, tipo, m.user].map(normalizeSearchText).join(' ');
+    const matchesQ = !words.length || words.every(word => haystack.includes(word));
+    const matchesF = f === 'all' || tipo === f;
+    return matchesQ && matchesF;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortMode === 'qty-desc') return (Number(b.qty) || 0) - (Number(a.qty) || 0);
+    if (sortMode === 'qty-asc') return (Number(a.qty) || 0) - (Number(b.qty) || 0);
+    const diff = getMovTimestamp(b) - getMovTimestamp(a);
+    return sortMode === 'antiguo' ? -diff : diff;
+  });
+
+  document.getElementById('mov-tbody').innerHTML = filtered.slice(0, 150).map(m => {
+    const cliente = getMovimientoCliente(m);
+    const folio = getMovimientoFolio(m);
+    const tipo = getMovementTypeLabel(m.type);
+    const refLabel = tipo === 'SALIDA' ? 'Folio' : (tipo === 'MODIFICADA' ? 'Folio' : 'Ref.');
+    return `
+      <tr>
+        <td><small>${esc(m.date)}</small></td>
+        <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
+        <td><span class="clave-cell" style="font-size:0.85rem;">${esc(m.clave)}</span></td>
+        <td>${esc(m.desc)}<br><small style="color:#64748b">${esc(m.note)}</small></td>
+        <td><strong>${esc(cliente || '—')}</strong>${folio ? `<br><small style="color:#64748b">${refLabel}: ${esc(folio)}</small>` : ''}</td>
+        <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
+        <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
+        <td class="admin-only"><div style="display:flex; gap:5px;">
+          <button class="btn btn-outline btn-sm" onclick="openMovModal('${m.id}')"><i class="fas fa-eye"></i></button>
+          <button class="btn btn-danger btn-sm" onclick="deleteMov('${m.id}')"><i class="fas fa-trash"></i></button>
+        </div></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderKardex() {
+  const q = document.getElementById('kardex-search').value.toLowerCase().trim();
+  const sortMode = document.getElementById('kardex-sort')?.value || 'reciente';
+  
+  const filtered = movimientos.filter(m => {
+    const cliente = getMovimientoCliente(m);
+    const folio = getMovimientoFolio(m);
+    const tipo = getMovementTypeLabel(m.type);
+    const haystack = [folio, m.clave, m.desc, cliente, m.note, tipo, m.user].map(normalizeSearchText).join(' ');
+    const words = normalizeSearchText(q).split(/\s+/).filter(Boolean);
+    return !words.length || words.every(word => haystack.includes(word));
+  });
+
+  filtered.sort((a, b) => {
+    const diff = getMovTimestamp(b) - getMovTimestamp(a);
+    return sortMode === 'antiguo' ? -diff : diff;
+  });
+
+  document.getElementById('kardex-tbody').innerHTML = filtered.slice(0, 150).map(m => {
+    const cliente = getMovimientoCliente(m);
+    const folio = getMovimientoFolio(m);
+    const tipo = getMovementTypeLabel(m.type);
+    return `
+      <tr>
+        <td><small>${esc(m.date)}</small></td>
+        <td style="font-weight:bold; color:#059669;">${esc(folio || 'S/F')}${cliente ? `<br><small style="color:#64748b; font-weight:400;">${esc(cliente)}</small>` : ''}</td>
+        <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
+        <td><span class="clave-cell" style="font-size:0.85rem;">${esc(m.clave)}</span></td>
+        <td>${esc(m.desc)}${m.note ? `<br><small style="color:#64748b">${esc(m.note)}</small>` : ''}</td>
+        <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
+        <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openMovModal(id) {
+  const m = movimientos.find(x => String(x.id) === String(id));
+  if (!m) { showToast('Movimiento no encontrado', 'error'); return; }
+  document.getElementById('mov-id').value = m.id;
+  document.getElementById('mov-fecha').value = m.date;
+  document.getElementById('mov-tipo').value = getMovementTypeLabel(m.type);
+  document.getElementById('mov-qty').value = m.qty;
+  document.getElementById('mov-nota').value = m.note;
+  openModal('modal-movimiento');
+}
+
+function saveMovChanges() {
+  const id = document.getElementById('mov-id').value;
+  const m = movimientos.find(x => String(x.id) === String(id));
+  if (!m) { showToast('Movimiento no encontrado', 'error'); return; }
+  m.type = getMovementTypeLabel(document.getElementById('mov-tipo').value);
+  m.qty = parseFloat(document.getElementById('mov-qty').value)||0;
+  m.note = document.getElementById('mov-nota').value;
+  m.updatedAt = Date.now();
+  closeModal('modal-movimiento');
+  broadcastFullSync();
+  renderMovimientos();
+  showToast('Movimiento actualizado');
+}
+
+function deleteMov(id) {
+  if (confirm('¿Eliminar este registro de movimiento? No afectara el stock actual.')) {
+    const target = movimientos.find(x => String(x.id) === String(id));
+    movimientos = movimientos.filter(x => String(x.id) !== String(id)); 
+    markDeleted(deletedMovimientos, target ? target.id : id);
+    broadcastFullSync();
+    renderMovimientos(); 
+    showToast('Registro eliminado', 'error');
+  }
+}
+
+function filterHistorialVentas() { renderHistorialVentas(); }
+function renderHistorialVentas() {
+  const q = normalizeSearchText(document.getElementById('hv-search').value);
+  const sortMode = document.getElementById('hv-sort')?.value || 'reciente';
+  
+  const sortedVentas = [...ventas]
+    .filter(v => normalizeSearchText(v.folio).includes(q) || normalizeSearchText(v.cliente).includes(q))
+    .sort((a, b) => {
+      if (sortMode === 'total-desc') return (Number(b.total) || 0) - (Number(a.total) || 0);
+      if (sortMode === 'total-asc') return (Number(a.total) || 0) - (Number(b.total) || 0);
+
+      const fechaComp = String(b.fecha || '').localeCompare(String(a.fecha || ''));
+      if (fechaComp !== 0) return sortMode === 'antiguo' ? -fechaComp : fechaComp;
+
+      const idComp = (Number(b.id) || 0) - (Number(a.id) || 0);
+      return sortMode === 'antiguo' ? -idComp : idComp;
+    });
+
+  document.getElementById('hv-list').innerHTML = sortedVentas.slice(0, 100).map(v => `
+    <div class="stat-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+      <div><strong>${v.folio}</strong> - ${esc(v.cliente)}<br><small style="color:#64748b;">${esc(v.fecha)} | ${v.items?.length || 0} material(es)</small></div>
+      <div style="text-align:right">
+        <div style="font-weight:800; color:#059669; margin-bottom:8px;">$${fmt(v.total)}</div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="viewVenta(${v.id})"><i class="fas fa-eye"></i> Ver</button>
+          <button class="btn btn-primary btn-sm admin-only admin-inline" onclick="editVenta(${v.id})"><i class="fas fa-edit"></i> Modificar</button>
+          <button class="btn btn-danger btn-sm admin-only admin-inline" onclick="deleteVenta(${v.id})"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function viewVenta(id) {
+  const v = ventas.find(x => x.id === id);
+  if (!v) { showToast('Compra no encontrada', 'error'); return; }
+  currentViewingVenta = v;
+  const totalPiezas = v.items.reduce((s,i)=>s+(parseFloat(i.cantidad)||0), 0);
+  
+  document.getElementById('print-area').innerHTML = `
+    <div class="detail-doc">
+      <div class="detail-header-card">
+        <p><strong>Pedido a / Solicitante:</strong> ${esc(v.cliente)}</p>
+        <p><strong>Folio / Num. De Des:</strong> ${esc(v.folio)}</p>
+        <p><strong>Fecha:</strong> ${esc(v.fecha)}</p>
+        <p><strong>Total Materiales:</strong> ${v.items.length}</p>
+        <p><strong>Piezas Solicitadas:</strong> ${totalPiezas}</p>
+        <p><strong>Total Importe:</strong> $ ${fmt(v.total)}</p>
+      </div>
+      <div class="detail-table-wrap">
+        <table class="detail-table" id="table-formato-excel">
+          <thead>
+            <tr>
+              <th rowspan="2" class="col-clave">S&iacute;mbolo o clave</th>
+              <th class="col-desc">Art&iacute;culos</th>
+              <th class="col-consumo">CONSUMO DEL</th>
+              <th colspan="3" style="text-align:center;">CANTIDAD</th>
+              <th rowspan="2" class="col-unidad">Unidad</th>
+              <th rowspan="2" class="col-precio">Precio</th>
+              <th rowspan="2" class="col-importe">Importe</th>
+            </tr>
+            <tr>
+              <th class="col-desc" style="text-align:center;">Descripci&oacute;n</th>
+              <th class="col-consumo">MES ANTERIOR</th>
+              <th class="col-qty">SOLIC.</th>
+              <th class="col-qty">AUTOR.</th>
+              <th class="col-qty">SURT.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${v.items.map(i => {
+              const cant = parseFloat(i.cantidad) || 0;
+              const prec = parseFloat(i.precio) || 0;
+              const imp = cant * prec;
+              return `
+              <tr>
+                <td class="col-clave">${esc(i.clave || '')}</td>
+                <td class="col-desc">${esc(i.descripcion || '')}</td>
+                <td class="col-consumo"></td>
+                <td class="col-qty">${cant}</td>
+                <td class="col-qty">${cant}</td>
+                <td class="col-qty">${cant}</td>
+                <td class="col-unidad">${esc(i.unidad || 'PIEZA')}</td>
+                <td class="col-precio">$ ${fmt(prec)}</td>
+                <td class="col-importe">$ ${fmt(imp)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="8" style="text-align:right; font-weight:800; padding-right:12px;">TOTAL:</td>
+              <td class="col-importe" style="font-weight:900; color:#064e3b;">$ ${fmt(v.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  `;
+  openModal('modal-venta-detail');
+}
+
+function copyVentaTableToClipboard() {
+  if (!currentViewingVenta) return;
+  const v = currentViewingVenta;
+  let tsv = "Simbolo o clave\tArticulos\tCONSUMO MES ANTERIOR\tSOLIC.\tAUTOR.\tSURT.\tUnidad\tPrecio\tImporte\n";
+  v.items.forEach(i => {
+    const cant = parseFloat(i.cantidad) || 0;
+    const prec = parseFloat(i.precio) || 0;
+    const imp = cant * prec;
+    tsv += `${i.clave || ''}\t${i.descripcion || ''}\t\t${cant}\t${cant}\t${cant}\t${i.unidad || 'PIEZA'}\t${prec.toFixed(2)}\t${imp.toFixed(2)}\n`;
+  });
+  tsv += `\t\t\t\t\t\tTOTAL:\t\t${Number(v.total || 0).toFixed(2)}`;
+
+  navigator.clipboard.writeText(tsv).then(() => {
+    showToast('¡Tabla copiada! Pegala en Excel con Ctrl + V');
+  }).catch(() => {
+    fallbackCopyText(tsv);
+  });
+}
+
+function copyVentaRowsOnlyToClipboard() {
+  if (!currentViewingVenta) return;
+  const v = currentViewingVenta;
+  let tsv = "";
+  v.items.forEach(i => {
+    const cant = parseFloat(i.cantidad) || 0;
+    const prec = parseFloat(i.precio) || 0;
+    const imp = cant * prec;
+    tsv += `${i.clave || ''}\t${i.descripcion || ''}\t\t${cant}\t${cant}\t${cant}\t${i.unidad || 'PIEZA'}\t${prec.toFixed(2)}\t${imp.toFixed(2)}\n`;
+  });
+
+  navigator.clipboard.writeText(tsv).then(() => {
+    showToast('¡Renglones copiados para tu formato de Excel!');
+  }).catch(() => {
+    fallbackCopyText(tsv);
+  });
+}
+
+function fallbackCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  showToast('¡Copiado al portapapeles!');
+}
+
+function editVenta(id) {
+  const v = ventas.find(x => String(x.id) === String(id));
+  if (!v) { showToast('Compra no encontrada', 'error'); return; }
+  editingVentaId = v.id; ventaItems = JSON.parse(JSON.stringify(v.items || []));
+  document.getElementById('venta-folio-input').value = v.folio; document.getElementById('venta-fecha').value = v.fecha; document.getElementById('venta-cliente').value = v.cliente;
+  renderVentaItems(); showSection('ventas');
+}
+
+function deleteVenta(id) {
+  if (confirm('¿Eliminar compra? Se reintegrara el stock a los productos correspondientes.')) {
+    const v = ventas.find(x => String(x.id) === String(id));
+    if (!v) { showToast('Compra no encontrada', 'error'); return; }
+    (v.items || []).forEach(i => { const p = products.find(x => x.id === i.productId); if(p) { p.cantidad += i.cantidad; p.updatedAt = Date.now(); addMov('ENTRADA', p.id, i.cantidad, `Compra cancelada ${v.folio}`, v.folio, v.cliente); } });
+    ventas = ventas.filter(x => String(x.id) !== String(id)); 
+    markDeleted(deletedVentas, v.id);
+    broadcastFullSync();
+    renderHistorialVentas(); 
+    showToast('Eliminada y stock restaurado', 'error');
+  }
+}
+
+function renderPagination(id, cur, tot, callbackName) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (tot <= 1) { el.innerHTML = ''; return; }
+
+  const pages = [];
+  const addPage = (page) => { if (!pages.includes(page) && page >= 1 && page <= tot) pages.push(page); };
+
+  addPage(1);
+  addPage(2);
+  for (let i = cur - 1; i <= cur + 1; i++) addPage(i);
+  addPage(tot - 1);
+  addPage(tot);
+  pages.sort((a, b) => a - b);
+
+  let h = `<button class="page-nav" ${cur===1?'disabled':''} onclick="${callbackName}(${cur-1})"><i class="fas fa-chevron-left"></i> Anterior</button>`;
+  h += `<span class="page-info">Pagina ${cur} de ${tot}</span>`;
+
+  let prev = 0;
+  pages.forEach(page => {
+    if (page - prev > 1) h += `<span class="page-ellipsis">…</span>`;
+    h += `<button class="${page===cur?'active':''}" onclick="${callbackName}(${page})">${page}</button>`;
+    prev = page;
+  });
+
+  h += `<button class="page-nav" ${cur===tot?'disabled':''} onclick="${callbackName}(${cur+1})">Siguiente <i class="fas fa-chevron-right"></i></button>`;
+  el.innerHTML = h;
+}
+
+function renderVentaItems() {
+  const list = document.getElementById('venta-items-list');
+  if (!ventaItems.length) {
+    list.innerHTML = '<div class="venta-empty"><i class="fas fa-cart-plus" style="font-size:1.6rem; color:#059669; margin-bottom:8px; display:block;"></i>Sin materiales agregados a la compra</div>';
+  } else {
+    const header = `
+      <div class="venta-row venta-head">
+        <div>Material / Producto</div>
+        <div>Unidad</div>
+        <div>Cantidad</div>
+        <div>Precio</div>
+        <div>Importe</div>
+        <div></div>
+      </div>`;
+
+    list.innerHTML = header + ventaItems.map((i, idx) => {
+      const prod = products.find(x => x.id === i.productId) || {};
+      const unidad = fixTextForExcel(i.unidad || prod.unidad || 'PIEZA');
+      i.unidad = unidad;
+      return `
+        <div class="venta-row">
+          <div>
+            <div class="venta-product-name">${esc(i.descripcion)}</div>
+            <small class="venta-product-key">${esc(i.clave)}</small>
+          </div>
+          <div><span class="venta-unit-badge">${esc(unidad)}</span></div>
+          <div><input class="venta-qty-input" type="number" value="${i.cantidad}" min="1" onchange="updateVentaQty(${idx}, this.value)"></div>
+          <div class="venta-money">$${fmt(i.precio)}</div>
+          <div class="venta-money">$${fmt(i.cantidad*i.precio)}</div>
+          <button class="btn btn-danger btn-sm" onclick="ventaItems.splice(${idx},1); renderVentaItems();"><i class="fas fa-trash"></i></button>
+        </div>`;
+    }).join('');
+  }
+  const total = ventaItems.reduce((s,i)=>s+i.cantidad*i.precio, 0);
+  const piezas = ventaItems.reduce((s,i)=>s+(parseFloat(i.cantidad)||0), 0);
+  document.getElementById('venta-total-val').textContent = '$' + fmt(total);
+  const countEl = document.getElementById('venta-count-val');
+  if (countEl) countEl.innerHTML = `${ventaItems.length} material(es) <span style="margin:0 6px;">|</span> ${piezas} pieza(s)`;
+}
+
+function updateVentaQty(idx, val) {
+  const i = ventaItems[idx];
+  if (!i) return;
+  let q = Number(val);
+  if (!Number.isFinite(q) || q <= 0) {
+    showToast('La cantidad debe ser mayor que cero', 'error');
+    q = 1;
+  }
+  const disponible = getStockDisponibleParaVenta(i.productId);
+  if (q > disponible) {
+    showToast('Stock insuficiente', 'error');
+    i.cantidad = Math.max(disponible, 1);
+  } else {
+    i.cantidad = q;
+  }
+  renderVentaItems();
+}
+
+function clearVenta() {
+  ventaItems = [];
+  editingVentaId = null;
+  document.getElementById('venta-cliente').value = '';
+  document.getElementById('venta-search-prod').value = '';
+  document.getElementById('venta-ac-list').style.display = 'none';
+  ventaSearchResults = [];
+  document.getElementById('venta-folio-input').value = currentFolio;
+  document.getElementById('venta-fecha').valueAsDate = new Date();
+  const btnVenta = document.getElementById('venta-save-btn');
+  if (btnVenta) btnVenta.innerHTML = '<i class="fas fa-shopping-cart"></i> Finalizar Compra';
+  renderVentaItems();
+}
+
+function openFolioModal() { document.getElementById('folio-input').value = currentFolio; openModal('modal-folio'); }
+function saveFolio() { currentFolio = document.getElementById('folio-input').value; broadcastFullSync(); document.getElementById('folio-val').textContent = currentFolio; closeModal('modal-folio'); showToast('Folio actualizado'); }
+
+// =============================================================
+// REINICIO TOTAL DEL SISTEMA (BORRAR TODO PARA OTRO PROYECTO)
+// =============================================================
+function openResetSystemModal() {
+  const input = document.getElementById('reset-system-password');
+  input.value = '';
+  openModal('modal-reset-system');
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeResetSystemModal() {
+  document.getElementById('reset-system-password').value = '';
+  closeModal('modal-reset-system');
+}
+
+async function confirmResetSystem() {
+  const pass = document.getElementById('reset-system-password').value.trim();
+  if (!pass) {
+    showToast('Ingrese la contraseña de administrador o la clave maestra', 'error');
+    return;
+  }
+
+  let authorized = (pass === MASTER_PIN);
+
+  if (!authorized) {
+    const pHash = await hashSHA256(pass);
+    authorized = users.some(u => u.role === 'admin' && u.passHash === pHash);
+  }
+
+  if (!authorized) {
+    showToast('Contraseña incorrecta. No se autorizó el borrado', 'error');
+    document.getElementById('reset-system-password').select();
+    return;
+  }
+
+  closeResetSystemModal();
+
+  const finalCheck = confirm('Última confirmación: se borrarán TODOS los productos, compras, movimientos y usuarios de este sistema, de forma permanente. ¿Desea continuar?');
+  if (!finalCheck) {
+    showToast('Reinicio cancelado. No se borró ningún dato');
+    return;
+  }
+
+  await performFullReset();
+}
+
+async function performFullReset() {
+  showToast('Borrando todos los datos...', 'warning');
+
+  // Se cierra la conexión de red activa para no arrastrar datos viejos
+  // ni reenviar el borrado a otros equipos que sigan usando el proyecto anterior.
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (peer) { try { peer.destroy(); } catch (e) {} }
+
+  const freshUsers = [
+    { id: 1, username: 'admin', passHash: await hashSHA256('admin123'), name: 'Administrador Principal', role: 'admin', active: true, updatedAt: Date.now() },
+    { id: 2, username: 'operador', passHash: await hashSHA256('user123'), name: 'Operador General', role: 'user', active: true, updatedAt: Date.now() }
+  ];
+  const defaultRoom = 'donacion2026';
+
+  await idbClearAndPutAll('products', []);
+  await idbClearAndPutAll('ventas', []);
+  await idbClearAndPutAll('movimientos', []);
+  await idbClearAndPutAll('users', freshUsers);
+  await idbSetMeta('folio', 'C-001');
+  await idbSetMeta('cloud_room', defaultRoom);
+  await idbSetMeta('deletedProducts', []);
+  await idbSetMeta('deletedVentas', []);
+  await idbSetMeta('deletedMovimientos', []);
+  await idbSetMeta('deletedUsers', []);
+
+  localStorage.removeItem(STORAGE_PREFIX + 'cloud_room');
+  sessionStorage.removeItem(STORAGE_PREFIX + 'session');
+
+  location.reload();
+}
+
+// =============================================================
+// MOTOR MULTIHOJA DE EXCEL ESTILIZADO CON EXCELJS (CORREGIDO)
+// =============================================================
+function fixTextForExcel(value) {
+  if (value === null || value === undefined) return '';
+  return cleanCorruptedString(value);
+}
+
+function getExcelColName(n) {
+  let s = '';
+  while (n > 0) {
+    let m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s || 'A';
+}
+
+const REPORT_DESCRIPTIONS = {
+  full: 'Genera un libro integral con resumen ejecutivo, inventario actual, detalle de compras, ranking de mas adquiridos, resumen por solicitante, stock en cero, stock critico y recepciones.',
+  sold: 'Exporta cada producto comprado con fecha, folio, solicitante, clave, unidad, cantidad, precio e importe.',
+  top: 'Agrupa las compras por producto y ordena de mayor a menor cantidad e importe.',
+  'sales-summary': 'Resume cada compra por folio y solicitante, incluyendo productos distintos, piezas e importe total.',
+  zero: 'Exporta unicamente productos cuya existencia actual sea igual o menor que cero.',
+  critical: 'Exporta productos con existencia actual entre 1 y 5 unidades.',
+  'no-sales': 'Muestra productos que no registraron compras dentro del periodo seleccionado.',
+  entries: 'Exporta entradas de inventario, factura, fecha, producto, unidad, cantidad y motivo.'
+};
+
+function updateReportPreview() {
+  const type = document.getElementById('report-type')?.value || 'full';
+  const range = reportDateRange();
+  const helpEl = document.getElementById('report-help');
+  if (helpEl && REPORT_DESCRIPTIONS[type]) {
+    helpEl.textContent = REPORT_DESCRIPTIONS[type];
+  }
+
+  const selectedVentas = getReportVentas(range);
+  const soldDetail = buildSoldDetail(selectedVentas);
+  const totalUnits = soldDetail.reduce((s, r) => s + r.cantidad, 0);
+  const totalMoney = soldDetail.reduce((s, r) => s + r.importe, 0);
+  const zeroCount = products.filter(p => Number(p.cantidad) <= 0).length;
+
+  const kpiSales = document.getElementById('report-kpi-sales');
+  const kpiUnits = document.getElementById('report-kpi-units');
+  const kpiTotal = document.getElementById('report-kpi-total');
+  const kpiZero = document.getElementById('report-kpi-zero');
+
+  if (kpiSales) kpiSales.textContent = selectedVentas.length;
+  if (kpiUnits) kpiUnits.textContent = totalUnits.toLocaleString('es-MX');
+  if (kpiTotal) kpiTotal.textContent = '$' + fmt(totalMoney);
+  if (kpiZero) kpiZero.textContent = zeroCount;
+}
+
+function openReportModal(preselectedType = '') {
+  const typeEl = document.getElementById('report-type');
+  if (typeEl && preselectedType && REPORT_DESCRIPTIONS[preselectedType]) typeEl.value = preselectedType;
+  updateReportPreview();
+  openModal('modal-reportes');
+}
+
+function setReportPeriod(mode) {
+  const fromEl = document.getElementById('report-date-from');
+  const toEl = document.getElementById('report-date-to');
+  if (!fromEl || !toEl) return;
+  if (mode === 'all') {
+    fromEl.value = '';
+    toEl.value = '';
+  } else {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    fromEl.value = mode === 'year' ? `${y}-01-01` : `${y}-${m}-01`;
+    toEl.value = `${y}-${m}-${d}`;
+  }
+  updateReportPreview();
+}
+
+function reportDateRange() {
+  return {
+    from: (document.getElementById('report-date-from')?.value || '').trim(),
+    to: (document.getElementById('report-date-to')?.value || '').trim()
+  };
+}
+
+function normalizeISODate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const latam = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (latam) return `${latam[3]}-${latam[2].padStart(2, '0')}-${latam[1].padStart(2, '0')}`;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return '';
+}
+
+function dateInReportRange(value, range = reportDateRange()) {
+  const date = normalizeISODate(value);
+  if (!range.from && !range.to) return true;
+  if (!date) return false;
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function getReportVentas(range = reportDateRange()) {
+  return (Array.isArray(ventas) ? ventas : []).filter(v => dateInReportRange(v.fecha, range));
+}
+
+function getReportEntradas(range = reportDateRange()) {
+  return (Array.isArray(movimientos) ? movimientos : []).filter(m =>
+    getMovementTypeLabel(m.type) === 'ENTRADA' && dateInReportRange(m.fecha_factura || m.date, range)
+  );
+}
+
+function reportProductKey(item) {
+  if (item && item.productId !== undefined && item.productId !== null && item.productId !== '') return `id:${item.productId}`;
+  return `txt:${normalizeSearchText(item?.clave || '')}|${normalizeSearchText(item?.descripcion || '')}`;
+}
+
+function buildSoldDetail(selectedVentas) {
+  const rows = [];
+  selectedVentas.forEach(v => {
+    (Array.isArray(v.items) ? v.items : []).forEach(item => {
+      const qty = Number(item.cantidad) || 0;
+      const price = Number(item.precio) || 0;
+      rows.push({
+        fecha: normalizeISODate(v.fecha) || v.fecha || '',
+        folio: fixTextForExcel(v.folio || ''),
+        cliente: fixTextForExcel(v.cliente || 'Público'),
+        clave: fixTextForExcel(item.clave || ''),
+        descripcion: fixTextForExcel(item.descripcion || ''),
+        unidad: fixTextForExcel(item.unidad || 'PIEZA'),
+        cantidad: qty,
+        precio: price,
+        importe: qty * price
+      });
+    });
+  });
+  return rows.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || String(a.folio).localeCompare(String(b.folio), 'es', { numeric:true }));
+}
+
+function buildSalesRanking(selectedVentas) {
+  const map = new Map();
+  selectedVentas.forEach(v => {
+    (Array.isArray(v.items) ? v.items : []).forEach(item => {
+      const key = reportProductKey(item);
+      const product = products.find(p => String(p.id) === String(item.productId)) || {};
+      const current = map.get(key) || {
+        clave: fixTextForExcel(item.clave || product.clave || ''),
+        descripcion: fixTextForExcel(item.descripcion || product.descripcion || ''),
+        unidad: fixTextForExcel(item.unidad || product.unidad || 'PIEZA'),
+        cantidad: 0, importe: 0, folios: new Set(), clientesSet: new Set(),
+        stock: Number(product.cantidad) || 0, ultimaVenta: ''
+      };
+      const qty = Number(item.cantidad) || 0;
+      const price = Number(item.precio) || 0;
+      current.cantidad += qty;
+      current.importe += qty * price;
+      if (v.folio) current.folios.add(String(v.folio));
+      if (v.cliente) current.clientesSet.add(String(v.cliente));
+      const date = normalizeISODate(v.fecha);
+      if (date && date > current.ultimaVenta) current.ultimaVenta = date;
+      map.set(key, current);
+    });
+  });
+  return Array.from(map.values()).map(x => ({
+    ...x,
+    ventas: x.folios.size,
+    clientes: x.clientesSet.size,
+    precioPromedio: x.cantidad ? x.importe / x.cantidad : 0
+  })).sort((a, b) => b.cantidad - a.cantidad || b.importe - a.importe);
+}
+
+function buildSalesSummary(selectedVentas) {
+  return selectedVentas.map(v => {
+    const items = Array.isArray(v.items) ? v.items : [];
+    return {
+      fecha: normalizeISODate(v.fecha) || v.fecha || '',
+      folio: fixTextForExcel(v.folio || ''),
+      cliente: fixTextForExcel(v.cliente || 'Público'),
+      productos: items.length,
+      unidades: items.reduce((s, i) => s + (Number(i.cantidad) || 0), 0),
+      total: Number(v.total) || items.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0)
+    };
+  }).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || String(a.folio).localeCompare(String(b.folio), 'es', { numeric:true }));
+}
+
+function getUnsoldProducts(selectedVentas) {
+  const soldKeys = new Set();
+  selectedVentas.forEach(v => (v.items || []).forEach(item => soldKeys.add(reportProductKey(item))));
+  return products.filter(p =>
+    !soldKeys.has(`id:${p.id}`) &&
+    !soldKeys.has(`txt:${normalizeSearchText(p.clave || '')}|${normalizeSearchText(p.descripcion || '')}`)
+  );
+}
+
+function exportAsCSVFallback(sheetsConfig, filename) {
+  let csvContent = "";
+  sheetsConfig.forEach(s => {
+    csvContent += `=== ${s.name} ===\r\n`;
+    csvContent += s.headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(",") + "\r\n";
+    s.rows.forEach(r => {
+      csvContent += r.map(c => `"${String(c !== null && c !== undefined ? c : '').replace(/"/g, '""')}"`).join(",") + "\r\n";
+    });
+    csvContent += "\r\n\r\n";
+  });
+
+  const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const csvFileName = filename.replace(/\.xlsx$/i, '.csv');
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = csvFileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast('Exportado en formato CSV compatible con Excel');
+}
+
+async function downloadStyledWorkbook(sheetsConfig, filename) {
+  if (typeof ExcelJS === 'undefined') {
+    exportAsCSVFallback(sheetsConfig, filename);
+    return;
+  }
+
+  try {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'COMPRA Pro';
+    workbook.lastModifiedBy = currentUser ? (currentUser.name || currentUser.username) : 'Sistema';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    const usedSheetNames = new Set();
+
+    sheetsConfig.forEach(s => {
+      let cleanName = s.name.replace(/[\\\/\?\*\[\]:]/g, ' ').trim().slice(0, 31) || 'Hoja';
+      let base = cleanName;
+      let count = 2;
+      while (usedSheetNames.has(cleanName)) {
+        cleanName = `${base.slice(0, 27)} ${count++}`.slice(0, 31);
+      }
+      usedSheetNames.add(cleanName);
+
+      const ws = workbook.addWorksheet(cleanName, {
+        views: [{ showGridLines: true }],
+        pageSetup: { orientation: 'landscape', fitToPage: true }
+      });
+
+      const headerRow = ws.addRow(s.headers);
+      headerRow.height = 28;
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF059669' }
+        };
+        cell.font = {
+          name: 'Segoe UI',
+          size: 10,
+          bold: true,
+          color: { argb: 'FFFFFFFF' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF047857' } },
+          left: { style: 'thin', color: { argb: 'FF047857' } },
+          bottom: { style: 'medium', color: { argb: 'FF064E3B' } },
+          right: { style: 'thin', color: { argb: 'FF047857' } }
+        };
+      });
+
+      if (s.widths && Array.isArray(s.widths)) {
+        s.widths.forEach((w, colIdx) => {
+          ws.getColumn(colIdx + 1).width = Math.max(Number(w) || 14, 12);
+        });
+      }
+
+      s.rows.forEach((rowData, idx) => {
+        const row = ws.addRow(rowData);
+        row.height = 22;
+        const isEven = idx % 2 === 1;
+
+        row.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Segoe UI', size: 9.5 };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+
+          if (isEven && s.name !== 'Resumen ejecutivo') {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF8FAFC' }
+            };
+          }
+
+          const headerTitle = String(s.headers[colNumber - 1] || '').toLowerCase();
+          const isMoney = headerTitle.includes('$') || headerTitle.includes('precio') || headerTitle.includes('total') || headerTitle.includes('importe');
+          
+          if (isMoney && typeof cell.value === 'number') {
+            cell.numFmt = '"$"#,##0.00';
+            cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          } else if (typeof cell.value === 'number') {
+            cell.numFmt = Number.isInteger(cell.value) ? '#,##0' : '#,##0.00';
+            cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          } else {
+            if (headerTitle.includes('fecha') || headerTitle.includes('folio') || headerTitle.includes('clave') || headerTitle.includes('unidad') || headerTitle.includes('posicion') || headerTitle.includes('periodo') || headerTitle.includes('mes')) {
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            } else {
+              cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+            }
+          }
+        });
+      });
+
+      if (s.rows.length > 0 && s.name !== 'Resumen ejecutivo') {
+        const lastColLetter = getExcelColName(s.headers.length);
+        try {
+          ws.autoFilter = `A1:${lastColLetter}1`;
+        } catch(e) {}
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    
+    if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+      window.navigator.msSaveOrOpenBlob(blob, filename);
+    } else {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+  } catch (err) {
+    console.error('Error al generar XLSX, recurriendo a CSV:', err);
+    exportAsCSVFallback(sheetsConfig, filename);
+  }
+}
+
+async function exportSelectedReport() {
+  const type = document.getElementById('report-type')?.value || 'full';
+  const range = reportDateRange();
+  if (range.from && range.to && range.from > range.to) {
+    showToast('La fecha inicial no puede ser posterior a la fecha final', 'error');
+    return;
+  }
+
+  sanitizeStoredData();
+  const selectedVentas = getReportVentas(range);
+  const selectedEntries = getReportEntradas(range);
+  const zeroProducts = products.filter(p => Number(p.cantidad) <= 0).sort((a,b) => normSortText(a.descripcion).localeCompare(normSortText(b.descripcion),'es'));
+  const criticalProducts = products.filter(p => Number(p.cantidad) > 0 && Number(p.cantidad) <= 5).sort((a,b) => Number(a.cantidad)-Number(b.cantidad));
+  const stamp = todayISO().replace(/-/g, '');
+  let sheets = [];
+  let filename = `COMPRA_reporte_${stamp}.xlsx`;
+
+  const soldDetail = buildSoldDetail(selectedVentas);
+  const ranking = buildSalesRanking(selectedVentas);
+  const salesSummary = buildSalesSummary(selectedVentas);
+  const unsold = getUnsoldProducts(selectedVentas);
+  const total = soldDetail.reduce((s, r) => s + r.importe, 0);
+  const units = soldDetail.reduce((s, r) => s + r.cantidad, 0);
+
+  const sheetResumen = {
+    name: 'Resumen ejecutivo',
+    headers: ['Indicador', 'Resultado'],
+    widths: [36, 28],
+    rows: [
+      ['Fecha de generacion', new Date().toLocaleString('es-MX')],
+      ['Periodo desde', range.from || 'Inicio del historial'],
+      ['Periodo hasta', range.to || 'Fecha actual'],
+      ['Compras registradas', selectedVentas.length],
+      ['Unidades adquiridas', units],
+      ['Importe total ($)', total],
+      ['Materiales distintos comprados', ranking.length],
+      ['Material con mayor compra', ranking[0]?.descripcion || 'Sin compras'],
+      ['Unidades del mas comprado', ranking[0]?.cantidad || 0],
+      ['Materiales con stock en cero', zeroProducts.length],
+      ['Materiales con stock critico', criticalProducts.length],
+      ['Materiales sin compra en periodo', unsold.length],
+      ['Entradas registradas en periodo', selectedEntries.length],
+      ['Materiales en catalogo', products.length]
+    ]
+  };
+
+  const sheetInventario = {
+    name: 'Inventario actual',
+    headers: ['Clave', 'Ultima factura', 'Ultima fecha', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual'],
+    widths: [18, 20, 14, 75, 20, 16, 14],
+    rows: products.map(p => [p.clave || '', p.factura || '', p.fecha_entrada || '', p.descripcion || '', p.unidad || '', Number(p.precio) || 0, Number(p.cantidad) || 0])
+  };
+
+  const sheetSold = {
+    name: 'Materiales comprados',
+    headers: ['Fecha', 'Folio', 'Solicitante', 'Clave', 'Descripcion', 'Unidad', 'Cantidad', 'Precio unitario ($)', 'Importe ($)'],
+    widths: [14, 14, 26, 18, 72, 18, 12, 16, 17],
+    rows: soldDetail.map(r => [r.fecha, r.folio, r.cliente, r.clave, r.descripcion, r.unidad, r.cantidad, r.precio, r.importe])
+  };
+
+  const sheetRanking = {
+    name: 'Mas comprados',
+    headers: ['Posicion', 'Clave', 'Descripcion', 'Unidad', 'Cantidad', 'Compras', 'Solicitantes', 'Precio prom. ($)', 'Importe total ($)', 'Stock actual', 'Ultima compra'],
+    widths: [10, 18, 72, 18, 17, 10, 12, 16, 18, 14, 14],
+    rows: ranking.map((r, idx) => [idx + 1, r.clave, r.descripcion, r.unidad, r.cantidad, r.ventas, r.clientes, r.precioPromedio, r.importe, r.stock, r.ultimaVenta])
+  };
+
+  const sheetSummary = {
+    name: 'Compras por folio',
+    headers: ['Fecha', 'Folio', 'Solicitante', 'Materiales distintos', 'Unidades', 'Total ($)'],
+    widths: [14, 16, 32, 19, 16, 18],
+    rows: salesSummary.map(r => [r.fecha, r.folio, r.cliente, r.productos, r.unidades, r.total])
+  };
+
+  const sheetZero = {
+    name: 'Stock cero',
+    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
+    widths: [18, 75, 20, 16, 14, 22, 14],
+    rows: zeroProducts.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
+  };
+
+  const sheetCritical = {
+    name: 'Stock critico',
+    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
+    widths: [18, 75, 20, 16, 14, 22, 14],
+    rows: criticalProducts.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
+  };
+
+  const sheetUnsold = {
+    name: 'Sin compras',
+    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Periodo analizado'],
+    widths: [18, 75, 20, 16, 14, 28],
+    rows: unsold.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, range.from || range.to ? `${range.from || 'inicio'} a ${range.to || 'hoy'}` : 'todo el historial'])
+  };
+
+  const sheetEntries = {
+    name: 'Historial entradas',
+    headers: ['Fecha registro/factura', 'Factura/Ref.', 'Clave', 'Descripcion', 'Unidad', 'Cantidad', 'Motivo/Nota', 'Usuario'],
+    widths: [22, 18, 18, 72, 18, 14, 30, 18],
+    rows: selectedEntries.map(m => {
+      const p = products.find(x => String(x.id) === String(m.productId)) || {};
+      return [m.fecha_factura || normalizeISODate(m.date) || m.date, m.folio, m.clave, m.desc, p.unidad || 'PIEZA', Number(m.qty) || 0, m.note, m.user];
+    })
+  };
+
+  if (type === 'full') {
+    sheets = [sheetResumen, sheetInventario, sheetSold, sheetRanking, sheetSummary, sheetZero, sheetCritical, sheetUnsold, sheetEntries];
+    filename = `COMPRA_reporte_completo_${stamp}.xlsx`;
+  } else if (type === 'sold') {
+    sheets = [sheetSold, sheetSummary];
+    filename = `COMPRA_materiales_adquiridos_${stamp}.xlsx`;
+  } else if (type === 'top') {
+    sheets = [sheetRanking];
+    filename = `COMPRA_mas_comprados_${stamp}.xlsx`;
+  } else if (type === 'sales-summary') {
+    sheets = [sheetSummary];
+    filename = `COMPRA_resumen_folios_${stamp}.xlsx`;
+  } else if (type === 'zero') {
+    sheets = [sheetZero];
+    filename = `COMPRA_stock_cero_${stamp}.xlsx`;
+  } else if (type === 'critical') {
+    sheets = [sheetCritical];
+    filename = `COMPRA_stock_critico_${stamp}.xlsx`;
+  } else if (type === 'no-sales') {
+    sheets = [sheetUnsold];
+    filename = `COMPRA_sin_movimiento_${stamp}.xlsx`;
+  } else if (type === 'entries') {
+    sheets = [sheetEntries];
+    filename = `COMPRA_historial_entradas_${stamp}.xlsx`;
+  }
+
+  try {
+    await downloadStyledWorkbook(sheets, filename);
+    closeModal('modal-reportes');
+    showToast(`Reporte generado con diseño: ${sheets.length} hoja(s)`);
+  } catch (err) {
+    console.error(err);
+    exportAsCSVFallback(sheets, filename);
+  }
+}
+
+// AUXILIARES
+function fmt(n) { return Number(n||0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function stockBadge(q) { return `<span class="badge ${q<=0?'badge-zero':q<=5?'badge-critical':'badge-ok'}">${q}</span>`; }
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function showToast(m, t='success') { const el = document.getElementById('toast'); el.textContent = m; el.className = 'show toast-'+t; setTimeout(()=>el.className='', 3000); }
+
+function exportBackup() {
+  const data = { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers, system: 'COMPRA', timestamp: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup_compra_${todayISO()}.json`; link.click();
+}
+
+function importBackup(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.products)) throw new Error('Invalido');
+      products = data.products;
+      ventas = data.ventas || [];
+      movimientos = data.movimientos || [];
+      if (Array.isArray(data.users) && data.users.length) users = data.users;
+      currentFolio = data.currentFolio || 'C-001';
+      // Compatibilidad: respaldos generados antes de esta corrección no
+      // traen tombstones; en ese caso simplemente se parte de listas vacías.
+      deletedProducts = Array.isArray(data.deletedProducts) ? data.deletedProducts : [];
+      deletedVentas = Array.isArray(data.deletedVentas) ? data.deletedVentas : [];
+      deletedMovimientos = Array.isArray(data.deletedMovimientos) ? data.deletedMovimientos : [];
+      deletedUsers = Array.isArray(data.deletedUsers) ? data.deletedUsers : [];
+      sanitizeStoredData();
+      products = applyTombstones(products, deletedProducts);
+      ventas = applyTombstones(ventas, deletedVentas);
+      movimientos = applyTombstones(movimientos, deletedMovimientos);
+      users = applyTombstones(users, deletedUsers);
+      await broadcastFullSync();
+      refreshCurrentView();
+      showToast('Datos restaurados correctamente');
+    } catch(err) {
+      showToast('Archivo no valido', 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
