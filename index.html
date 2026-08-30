@@ -1414,6 +1414,15 @@ let connections = [];
 let isHost = false;
 let heartbeatTimer = null;
 
+// Control de reconexión: evita ciclos agresivos que provocan HTTP 429
+// en el servidor público de PeerJS.
+let networkRetryTimer = null;
+let clientJoinTimer = null;
+let networkRetryAttempt = 0;
+let networkStarting = false;
+let networkGeneration = 0;
+let intentionalNetworkClose = false;
+
 const localChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('compra_local_broadcast') : null;
 if (localChannel) {
   localChannel.onmessage = (e) => {
@@ -1439,10 +1448,6 @@ function ensureLoginUsers() {
 }
 
 // --- CORRECCIÓN SINCRONIZACIÓN DE BORRADOS (TOMBSTONES) ---
-// Cada colección tiene su lista paralela de "lápidas": { id, deletedAt }.
-// Al borrar un registro ya no basta con quitarlo del arreglo local: hay
-// que anotar aquí cuándo se borró para que, al sincronizar, los demás
-// equipos apliquen la baja en vez de conservar (o resucitar) el dato.
 let deletedProducts = [], deletedVentas = [], deletedMovimientos = [], deletedUsers = [];
 
 let invPage = 1, invPerPage = 25, ifPage = 1, ifPerPage = 50, ifCounts = {};
@@ -1471,10 +1476,53 @@ function updateCloudBadge(state, text) {
   }
 }
 
-function initPeerNetwork() {
-  // La red es opcional: si PeerJS no cargo (por falta de internet,
-  // bloqueo del CDN o apertura local del HTML), el sistema debe seguir
-  // funcionando normalmente en modo local. Nunca debe impedir el login.
+function networkErrorText(err) {
+  try {
+    return String((err && (err.message || err.type || err.toString())) || '').toLowerCase();
+  } catch(e) {
+    return '';
+  }
+}
+
+function isRateLimitError(err) {
+  const text = networkErrorText(err);
+  return text.includes('429') || text.includes('too many requests') || text.includes('unexpected response code: 429');
+}
+
+function clearNetworkTimers() {
+  if (networkRetryTimer) {
+    clearTimeout(networkRetryTimer);
+    networkRetryTimer = null;
+  }
+  if (clientJoinTimer) {
+    clearTimeout(clientJoinTimer);
+    clientJoinTimer = null;
+  }
+}
+
+function destroyPeerSilently() {
+  if (!peer) return;
+  intentionalNetworkClose = true;
+  try { peer.removeAllListeners(); } catch(e) {}
+  try { peer.destroy(); } catch(e) {}
+  peer = null;
+  intentionalNetworkClose = false;
+}
+
+function scheduleNetworkRetry(reason = 'Reintentando conexión...', minDelay = 8000) {
+  if (networkRetryTimer) return;
+  const generation = networkGeneration;
+  networkRetryAttempt = Math.min(networkRetryAttempt + 1, 6);
+  const delay = Math.max(minDelay, Math.min(60000, 5000 * Math.pow(2, networkRetryAttempt - 1)));
+  updateCloudBadge('connecting', reason + ' (' + Math.ceil(delay / 1000) + ' s)');
+  networkRetryTimer = setTimeout(() => {
+    networkRetryTimer = null;
+    if (generation !== networkGeneration) return;
+    initPeerNetwork(false);
+  }, delay);
+}
+
+function initPeerNetwork(resetBackoff = true) {
   if (typeof Peer !== 'function') {
     console.warn('PeerJS no disponible; se continua en modo local/offline.');
     isHost = false;
@@ -1484,14 +1532,21 @@ function initPeerNetwork() {
     return;
   }
 
-  if (peer) { try { peer.destroy(); } catch(e){} }
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (resetBackoff) networkRetryAttempt = 0;
+  clearNetworkTimers();
+  networkGeneration++;
+  const generation = networkGeneration;
+  networkStarting = true;
+  isHost = false;
   connections = [];
   activeConnection = null;
-  updateCloudBadge('connecting', 'Conectando...');
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
+  updateCloudBadge('connecting', 'Conectando a sala...');
+
+  destroyPeerSilently();
 
   const hostRoomId = getCleanRoomId();
-  
   const peerConfig = {
     debug: 0,
     config: {
@@ -1501,118 +1556,200 @@ function initPeerNetwork() {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' }
-      ]
+      ],
+      iceTransportPolicy: 'all'
     }
   };
 
-  peer = new Peer(hostRoomId, peerConfig);
+  try {
+    peer = new Peer(hostRoomId, peerConfig);
+  } catch (e) {
+    networkStarting = false;
+    console.warn('No se pudo iniciar PeerJS:', e);
+    scheduleNetworkRetry('No se pudo iniciar la red...');
+    return;
+  }
 
   peer.on('open', function() {
+    if (generation !== networkGeneration || !peer) return;
+    networkStarting = false;
+    networkRetryAttempt = 0;
     isHost = true;
     updatePeerCount();
-    showToast('Sala creada: ' + cloudRoomId + ' - Esperando equipos');
+    showToast('Sala activa: ' + cloudRoomId + ' - Esperando equipos');
   });
 
   peer.on('connection', function(conn) {
+    if (generation !== networkGeneration) {
+      try { conn.close(); } catch(e) {}
+      return;
+    }
     setupConnEvents(conn);
     conn.on('open', function() {
+      if (generation !== networkGeneration) return;
       if (!connections.includes(conn)) connections.push(conn);
       updatePeerCount();
-      conn.send({
-        type: 'FULL_DATA',
-        data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
-      });
+      try {
+        conn.send({
+          type: 'FULL_DATA',
+          data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
+        });
+      } catch(e) {
+        console.warn('Error enviando FULL_DATA:', e);
+      }
       showToast('Equipo secundario enlazado');
+      startHeartbeat();
     });
   });
 
   peer.on('error', function(err) {
-    if (err.type === 'unavailable-id') {
-      connectAsClient(hostRoomId, peerConfig);
-    } else if (err.type === 'peer-unavailable') {
-      updateCloudBadge('offline', 'Equipo principal no encontrado');
-      setTimeout(() => initPeerNetwork(), 3000);
-    } else {
-      console.warn('PeerJS error:', err);
-      updateCloudBadge('offline', 'Error de red - reconectando...');
+    if (generation !== networkGeneration) return;
+    networkStarting = false;
+
+    if (err && err.type === 'unavailable-id') {
+      // El ID de la sala ya está ocupado: esta computadora debe entrar como cliente.
+      destroyPeerSilently();
       setTimeout(() => {
-        if (peer && peer.disconnected) {
-          try { peer.reconnect(); } catch(e){ initPeerNetwork(); }
-        }
-      }, 2000);
+        if (generation !== networkGeneration) return;
+        connectAsClient(hostRoomId, peerConfig, generation);
+      }, 700);
+      return;
     }
+
+    if (err && err.type === 'peer-unavailable') {
+      updateCloudBadge('offline', 'Equipo principal no encontrado');
+      scheduleNetworkRetry('Buscando equipo principal...');
+      return;
+    }
+
+    if (isRateLimitError(err)) {
+      console.warn('PeerJS HTTP 429: se esperará antes de reintentar.', err);
+      scheduleNetworkRetry('Servidor temporalmente limitado... ', 15000);
+      return;
+    }
+
+    console.warn('PeerJS error:', err);
+    scheduleNetworkRetry('Error de red; reintentando de forma segura...');
   });
 
   peer.on('disconnected', function() {
-    console.log('Peer desconectado, intentando reconectar...');
-    updateCloudBadge('connecting', 'Reconectando...');
-    try {
-      peer.reconnect();
-    } catch(e) {
-      setTimeout(() => initPeerNetwork(), 2500);
-    }
+    if (generation !== networkGeneration || intentionalNetworkClose) return;
+    networkStarting = false;
+    console.warn('Peer desconectado; se evita la reconexión agresiva.');
+    updateCloudBadge('connecting', 'Conexión de señalización perdida...');
+    scheduleNetworkRetry('Reconectando a PeerJS...');
   });
 
   peer.on('close', function() {
+    if (generation !== networkGeneration || intentionalNetworkClose) return;
+    networkStarting = false;
     updateCloudBadge('offline', 'Conexión cerrada');
-    setTimeout(() => initPeerNetwork(), 3000);
+    scheduleNetworkRetry('Reabriendo conexión...');
   });
 }
 
-function connectAsClient(hostRoomId, peerConfig) {
+function connectAsClient(hostRoomId, peerConfig, generation = networkGeneration) {
   if (typeof Peer !== 'function') {
     updateCloudBadge('offline', 'Modo local - sin conexión de red');
     return;
   }
+  if (generation !== networkGeneration) return;
+
+  clearNetworkTimers();
   isHost = false;
-  peer = new Peer(peerConfig);
+  updateCloudBadge('connecting', 'Conectando al equipo principal...');
+
+  try {
+    peer = new Peer(peerConfig);
+  } catch (e) {
+    console.warn('No se pudo crear el cliente PeerJS:', e);
+    scheduleNetworkRetry('Reintentando como cliente...');
+    return;
+  }
 
   peer.on('open', function() {
-    joinHost(hostRoomId);
+    if (generation !== networkGeneration || !peer) return;
+    joinHost(hostRoomId, generation);
   });
 
   peer.on('error', function(err) {
-    console.warn('Cliente Peer error:', err);
-    updateCloudBadge('offline', 'Sin conexión - reintentando...');
-    setTimeout(() => initPeerNetwork(), 3000);
-  });
-
-  peer.on('disconnected', function() {
-    console.log('Cliente desconectado, reconectando...');
-    updateCloudBadge('connecting', 'Reconectando al principal...');
-    try {
-      peer.reconnect();
-    } catch(e) {
-      setTimeout(() => initPeerNetwork(), 2000);
+    if (generation !== networkGeneration) return;
+    if (isRateLimitError(err)) {
+      console.warn('PeerJS cliente HTTP 429; esperando antes de reintentar.', err);
+      scheduleNetworkRetry('Servidor temporalmente limitado... ', 15000);
+    } else if (err && err.type === 'peer-unavailable') {
+      updateCloudBadge('connecting', 'Equipo principal no disponible...');
+      scheduleNetworkRetry('Esperando al equipo principal...');
+    } else {
+      console.warn('Cliente Peer error:', err);
+      scheduleNetworkRetry('Sin conexión; reintentando...');
     }
   });
 
+  peer.on('disconnected', function() {
+    if (generation !== networkGeneration || intentionalNetworkClose) return;
+    updateCloudBadge('connecting', 'Reconectando al principal...');
+    scheduleNetworkRetry('Reconectando al principal...');
+  });
+
   peer.on('close', function() {
+    if (generation !== networkGeneration || intentionalNetworkClose) return;
     updateCloudBadge('offline', 'Desconectado');
-    setTimeout(() => initPeerNetwork(), 3000);
+    scheduleNetworkRetry('Restableciendo enlace...');
   });
 }
 
-function joinHost(hostRoomId) {
-  const conn = peer.connect(hostRoomId, { reliable: true, serialization: 'json' });
+function scheduleClientJoin(hostRoomId, generation = networkGeneration, delay = 8000) {
+  if (clientJoinTimer) return;
+  clientJoinTimer = setTimeout(() => {
+    clientJoinTimer = null;
+    if (generation !== networkGeneration) return;
+    if (!isHost && (!activeConnection || !activeConnection.open)) {
+      joinHost(hostRoomId, generation);
+    }
+  }, delay);
+}
+
+function joinHost(hostRoomId, generation = networkGeneration) {
+  if (!peer || generation !== networkGeneration || isHost) return;
+  if (activeConnection && activeConnection.open) return;
+  if (clientJoinTimer) return;
+
+  updateCloudBadge('connecting', 'Buscando principal... (' + cloudRoomId + ')');
+
+  let conn;
+  try {
+    conn = peer.connect(hostRoomId, { reliable: true, serialization: 'json' });
+  } catch (e) {
+    console.warn('No se pudo abrir el enlace:', e);
+    scheduleClientJoin(hostRoomId, generation, 10000);
+    return;
+  }
+
   activeConnection = conn;
   setupConnEvents(conn);
 
   conn.on('open', function() {
+    if (generation !== networkGeneration) return;
     connections = [conn];
+    networkRetryAttempt = 0;
     updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' (2 equipos)');
-    conn.send({ type: 'REQ_SYNC' });
+    try { conn.send({ type: 'REQ_SYNC' }); } catch(e) { console.warn('Error solicitando sincronización:', e); }
     showToast('Conectado y sincronizado con equipo principal');
     startHeartbeat();
   });
 
   conn.on('error', function(err) {
+    if (generation !== networkGeneration) return;
     console.warn('Conexión error:', err);
     connections = connections.filter(c => c !== conn);
     if (activeConnection === conn) activeConnection = null;
     updatePeerCount();
-    showToast('Error de enlace, reintentando...', 'error');
-    setTimeout(() => joinHost(hostRoomId), 2500);
+    if (isRateLimitError(err)) {
+      scheduleNetworkRetry('Servidor temporalmente limitado... ', 15000);
+    } else {
+      scheduleClientJoin(hostRoomId, generation, 10000);
+    }
   });
 }
 
@@ -1620,21 +1757,16 @@ function setupConnEvents(conn) {
   conn.on('data', function(msg) {
     handleIncomingData(msg, conn);
   });
-  
+
   conn.on('close', function() {
-    console.log('Conexión cerrada');
+    console.log('Conexión de datos cerrada');
     connections = connections.filter(c => c !== conn);
     if (activeConnection === conn) activeConnection = null;
     updatePeerCount();
-    showToast('Se perdió enlace con el otro equipo', 'error');
-    
-    // Si somos cliente y perdimos al host, intentar reconectar
+
     if (!isHost) {
-      setTimeout(() => {
-        if (!activeConnection || !activeConnection.open) {
-          joinHost(getCleanRoomId());
-        }
-      }, 2000);
+      updateCloudBadge('connecting', 'Se perdió el enlace; buscando principal...');
+      scheduleClientJoin(getCleanRoomId(), networkGeneration, 10000);
     }
   });
 
@@ -1643,7 +1775,7 @@ function setupConnEvents(conn) {
     connections = connections.filter(c => c !== conn);
     if (activeConnection === conn) activeConnection = null;
     updatePeerCount();
-    showToast('Error de sincronización', 'error');
+    if (!isHost) scheduleClientJoin(getCleanRoomId(), networkGeneration, 10000);
   });
 }
 
@@ -1651,47 +1783,35 @@ function updatePeerCount() {
   const count = connections.filter(c => c.open).length + 1;
   if (count > 1) {
     updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' (' + count + ' equipos)');
+  } else if (isHost) {
+    updateCloudBadge('online', 'Sala activa — esperando equipo... (' + cloudRoomId + ')');
   } else {
-    if (isHost) {
-      updateCloudBadge('online', 'Esperando equipo... (' + cloudRoomId + ')');
-    } else {
-      updateCloudBadge('connecting', 'Buscando principal... (' + cloudRoomId + ')');
-    }
+    updateCloudBadge('connecting', 'Buscando principal... (' + cloudRoomId + ')');
   }
 }
 
 function startHeartbeat() {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
-    // Verificar salud de la conexión
-    if (peer && peer.disconnected) {
-      console.log('Peer desconectado detectado por heartbeat');
-      try { peer.reconnect(); } catch(e){ initPeerNetwork(); }
+    if (!peer) return;
+
+    // El heartbeat ya no llama peer.reconnect() repetidamente.
+    // Si PeerJS perdió la señalización, se usa el backoff controlado.
+    if (peer.disconnected) {
+      scheduleNetworkRetry('Reconectando señalización...');
       return;
     }
-    
+
     if (!isHost) {
       if (!activeConnection || !activeConnection.open) {
-        console.log('Heartbeat: reconectando al host...');
-        joinHost(getCleanRoomId());
-      } else {
-        // Ping para mantener viva la conexión
-        try {
-          if (activeConnection.open) {
-            // Enviar ping silencioso (no genera toast)
-            // activeConnection.send({ type: 'PING' });
-          }
-        } catch(e) {}
+        scheduleClientJoin(getCleanRoomId(), networkGeneration, 10000);
       }
     } else {
-      // Limpiar conexiones muertas en host
       const before = connections.length;
       connections = connections.filter(c => c.open);
-      if (connections.length !== before) {
-        updatePeerCount();
-      }
+      if (connections.length !== before) updatePeerCount();
     }
-  }, 3500);
+  }, 5000);
 }
 
 
@@ -1705,22 +1825,17 @@ function markDeleted(tombstoneArr, id) {
   return tombstoneArr;
 }
 
-// Combina dos listas de tombstones quedándose, por id, con el borrado más reciente.
 function mergeTombstones(localList, remoteList) {
   const map = new Map();
   (Array.isArray(localList) ? localList : []).forEach(t => map.set(String(t.id), t));
   (Array.isArray(remoteList) ? remoteList : []).forEach(t => {
     const key = String(t.id);
     const existing = map.get(key);
-    if (!existing || (Number(t.deletedAt) || 0) > (Number(existing.deletedAt) || 0)) {
-      map.set(key, t);
-    }
+    if (!existing || (Number(t.deletedAt) || 0) > (Number(existing.deletedAt) || 0)) map.set(key, t);
   });
   return Array.from(map.values());
 }
 
-// Un elemento se considera borrado si su tombstone es igual o más reciente
-// que la última modificación conocida del propio elemento (last-write-wins).
 function isTombstoned(tombstoneArr, item) {
   if (!item || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return false;
   const t = tombstoneArr.find(x => String(x.id) === String(item.id));
@@ -1729,7 +1844,6 @@ function isTombstoned(tombstoneArr, item) {
   return (Number(t.deletedAt) || 0) >= itemTime;
 }
 
-// Quita de un arreglo cualquier elemento marcado como borrado en sus tombstones.
 function applyTombstones(arr, tombstoneArr) {
   if (!Array.isArray(arr) || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return arr;
   return arr.filter(item => !isTombstoned(tombstoneArr, item));
@@ -1739,43 +1853,30 @@ function mergeCollections(localArr, remoteArr) {
   if (!Array.isArray(remoteArr)) return localArr;
   const map = new Map();
   localArr.forEach(item => map.set(String(item.id), item));
-
   remoteArr.forEach(remoteItem => {
     const key = String(remoteItem.id);
-    if (!map.has(key)) {
-      map.set(key, remoteItem);
-    } else {
+    if (!map.has(key)) map.set(key, remoteItem);
+    else {
       const localItem = map.get(key);
       const remoteTime = Number(remoteItem.updatedAt) || 0;
       const localTime = Number(localItem.updatedAt) || 0;
-      if (remoteTime >= localTime) {
-        map.set(key, remoteItem);
-      }
+      if (remoteTime >= localTime) map.set(key, remoteItem);
     }
   });
-
   return Array.from(map.values()).filter(item => !item._deleted);
 }
 
 async function applyIncomingDelta(d) {
   if (!d) return;
-
-  // 1) Primero se combinan las listas de borrados (tombstones) para saber
-  //    qué ids deben eliminarse sin importar de qué equipo vengan los datos.
   deletedProducts = mergeTombstones(deletedProducts, d.deletedProducts);
   deletedVentas = mergeTombstones(deletedVentas, d.deletedVentas);
   deletedMovimientos = mergeTombstones(deletedMovimientos, d.deletedMovimientos);
   deletedUsers = mergeTombstones(deletedUsers, d.deletedUsers);
-
-  // 2) Se combinan las colecciones normalmente y luego se les aplica el
-  //    filtro de tombstones para que ningún registro borrado sobreviva
-  //    ni pueda "resucitar" al recibir una sincronización más reciente.
   if (Array.isArray(d.products)) products = applyTombstones(mergeCollections(products, d.products), deletedProducts);
   if (Array.isArray(d.ventas)) ventas = applyTombstones(mergeCollections(ventas, d.ventas), deletedVentas);
   if (Array.isArray(d.movimientos)) movimientos = applyTombstones(mergeCollections(movimientos, d.movimientos), deletedMovimientos);
   if (Array.isArray(d.users)) users = applyTombstones(mergeCollections(users, d.users), deletedUsers);
   if (d.currentFolio) currentFolio = d.currentFolio;
-
   sanitizeStoredData();
   await saveLocalData();
   refreshCurrentView();
@@ -1783,16 +1884,11 @@ async function applyIncomingDelta(d) {
 
 async function handleIncomingData(msg, senderConn) {
   if (!msg || typeof msg !== 'object') return;
-
-  // Ignorar pings
   if (msg.type === 'PING') return;
 
   if (msg.type === 'FULL_DATA' || msg.type === 'UPDATE_ALL') {
     await applyIncomingDelta(msg.data);
-    if (msg.type === 'FULL_DATA') {
-      showToast('Datos sincronizados en vivo');
-    }
-
+    if (msg.type === 'FULL_DATA') showToast('Datos sincronizados en vivo');
     if (isHost) {
       connections.forEach(c => {
         if (c !== senderConn && c.open) {
@@ -1806,19 +1902,15 @@ async function handleIncomingData(msg, senderConn) {
         type: 'FULL_DATA',
         data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
       });
-    } catch(e) {
-      console.warn('Error enviando FULL_DATA:', e);
-    }
+    } catch(e) { console.warn('Error enviando FULL_DATA:', e); }
   }
 }
 
 function _deprecated_handleIncomingData(msg, senderConn) {
   if (!msg || typeof msg !== 'object') return;
-
   if (msg.type === 'FULL_DATA' || msg.type === 'UPDATE_ALL') {
     applyIncomingDelta(msg.data);
     showToast('Datos sincronizados en vivo');
-
     if (isHost) {
       connections.forEach(c => {
         if (c !== senderConn && c.open) c.send(msg);
@@ -1839,9 +1931,7 @@ async function broadcastFullSync() {
     type: 'UPDATE_ALL',
     data: { products, ventas, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedMovimientos, deletedUsers }
   };
-  
   if (localChannel) localChannel.postMessage(payload);
-
   let sent = 0;
   connections.forEach(c => {
     if (c.open) { c.send(payload); sent++; }
@@ -1867,12 +1957,20 @@ function saveCloudRoom() {
   if (!input) { showToast('Ingrese una clave de sala', 'error'); return; }
   cloudRoomId = input;
   localStorage.setItem(STORAGE_PREFIX + 'cloud_room', cloudRoomId);
-  initPeerNetwork();
+  networkRetryAttempt = 0;
+  networkGeneration++;
+  clearNetworkTimers();
+  destroyPeerSilently();
+  initPeerNetwork(true);
   showToast(`Conectando a sala: ${cloudRoomId}...`);
 }
 
 function reconnectCloud() {
-  initPeerNetwork();
+  networkRetryAttempt = 0;
+  networkGeneration++;
+  clearNetworkTimers();
+  destroyPeerSilently();
+  initPeerNetwork(true);
 }
 
 // =============================================================
