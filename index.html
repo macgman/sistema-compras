@@ -3316,6 +3316,25 @@ function addVentaItem(id) {
   showToast('Material agregado');
 }
 
+function diagnosticarFoliosMes(folio, fecha) {
+  const monthKey = getVentaYearMonth(fecha);
+  const folioKey = normalizeSearchText(folio).replace(/\s+/g, ' ');
+  const encontrados = (Array.isArray(ventas) ? ventas : []).filter(v => {
+    if (!v || isTombstoned(deletedVentas, v)) return false;
+    return normalizeSearchText(v.folio).replace(/\s+/g, ' ') === folioKey
+      && getVentaYearMonth(v.fecha) === monthKey;
+  }).map(v => ({
+    id: v.id,
+    folio: v.folio,
+    fecha: v.fecha,
+    cliente: v.cliente,
+    updatedAt: v.updatedAt
+  }));
+
+  console.table(encontrados);
+  return encontrados;
+}
+
 function saveVenta() {
   if (!ventaItems.length) { showToast('Agregue materiales', 'error'); return; }
 
@@ -3335,29 +3354,48 @@ function saveVenta() {
     return;
   }
 
-  // Solo bloqueamos si existe una compra activa con el mismo folio
-  // en el mismo año/mes. Los registros eliminados (tombstones), vacíos
-  // o con una fecha no reconocible no pueden producir falsos duplicados.
-  const duplicate = ventas.some(x => {
+  // VALIDACION DEFINITIVA DEL FOLIO.
+  // La comparación se hace únicamente contra compras ACTIVAS, con folio y
+  // fecha válidos, y exclusivamente dentro del mismo año/mes.
+  // Nunca se usa updatedAt como fecha de la compra.
+  const folioKey = normalizeSearchText(folio).replace(/\s+/g, ' ');
+  const duplicateVenta = ventas.find(x => {
     if (!x) return false;
 
-    const sameId = String(x.id) === String(editingVentaId ?? '');
-    if (sameId) return false;
+    // Si estamos modificando la misma compra, no es duplicado.
+    if (String(x.id) === String(editingVentaId ?? '')) return false;
 
+    // Una compra eliminada no puede bloquear un folio.
     if (isTombstoned(deletedVentas, x)) return false;
 
-    const existingFolio = normalizeSearchText(x.folio);
-    if (!existingFolio) return false;
+    const existingFolioKey = normalizeSearchText(x.folio).replace(/\s+/g, ' ');
+    if (!existingFolioKey || existingFolioKey !== folioKey) return false;
 
     const existingYearMonth = getVentaYearMonth(x.fecha);
-    if (!existingYearMonth) return false;
+    if (!existingYearMonth || existingYearMonth !== ventaYearMonth) return false;
 
-    return existingFolio === normalizeSearchText(folio) &&
-           existingYearMonth === ventaYearMonth;
+    return true;
   });
 
-  if (duplicate) {
-    showToast('Ese folio ya esta registrado en el mismo mes', 'error');
+  if (duplicateVenta) {
+    // Dejamos el detalle en consola para poder identificar inmediatamente
+    // qué registro de datos está provocando el bloqueo.
+    console.warn('[FOLIO DUPLICADO DETECTADO]', {
+      folioCapturado: folio,
+      fechaCapturada: fecha,
+      registroEncontrado: {
+        id: duplicateVenta.id,
+        folio: duplicateVenta.folio,
+        fecha: duplicateVenta.fecha,
+        cliente: duplicateVenta.cliente,
+        updatedAt: duplicateVenta.updatedAt
+      }
+    });
+
+    showToast(
+      `El folio ${folio} ya existe en ${ventaYearMonth} (${duplicateVenta.fecha}). Revise Historial de Compras.`,
+      'error'
+    );
     return;
   }
 
