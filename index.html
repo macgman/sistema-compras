@@ -1407,6 +1407,35 @@ async function hashSHA256(text) {
 }
 
 // =============================================================
+// ESTADO VISUAL DE CONEXIÓN FIREBASE
+// =============================================================
+// Esta función debe existir antes de cualquier intento de modificar
+// el indicador superior. En versiones anteriores quedó omitida y eso
+// provocaba un ReferenceError al cargar el script, dejando la conexión
+// en un estado aparente de "Conectando...".
+function updateCloudBadge(state, text) {
+  const badge = document.getElementById('cloud-status-badge');
+  const dot = document.getElementById('cloud-dot');
+  const label = document.getElementById('cloud-status-text');
+  if (!badge || !dot || !label) return;
+
+  const normalized = String(state || '').toLowerCase();
+  dot.classList.remove('connecting', 'offline');
+  if (normalized === 'connecting') dot.classList.add('connecting');
+  if (normalized === 'offline' || normalized === 'error') dot.classList.add('offline');
+
+  label.textContent = String(text || 'Sin conexión');
+
+  if (normalized === 'online') {
+    badge.title = 'Firebase conectado · clic para reconectar';
+  } else if (normalized === 'connecting') {
+    badge.title = 'Conectando con Firebase...';
+  } else {
+    badge.title = 'Firebase desconectado · clic para reconectar';
+  }
+}
+
+// =============================================================
 // MOTOR 3: FIREBASE REALTIME DATABASE
 // =============================================================
 // Este motor sustituye por completo la conexión WebRTC/PeerJS.
@@ -1594,9 +1623,26 @@ async function firebaseConnectRoom() {
   }
 
   try {
+    updateCloudBadge('connecting', 'Conectando a Firebase...');
+
     if (firebaseRoomRef) {
       try { firebaseRoomRef.off(); } catch (_) {}
     }
+
+    // El nodo .info/connected indica la conexión REAL del navegador
+    // con el servicio Realtime Database. Así las dos computadoras
+    // muestran el mismo estado de conexión y no se quedan en
+    // "Conectando..." por depender solamente del listener de datos.
+    const connectionInfoRef = firebaseDB.ref('.info/connected');
+    connectionInfoRef.off();
+    connectionInfoRef.on('value', (snapshot) => {
+      const connected = snapshot.val() === true;
+      if (connected) {
+        updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
+      } else {
+        updateCloudBadge('connecting', 'Conectando a Firebase...');
+      }
+    });
 
     firebaseRoomRef = firebaseDB.ref(getFirebaseRoomPath());
     firebaseLastRemoteWrite = 0;
@@ -1605,10 +1651,11 @@ async function firebaseConnectRoom() {
       const remote = snapshot.val();
 
       if (!remote) {
-        updateCloudBadge('online', 'Firebase conectado · esperando datos');
-        // Si esta computadora ya tiene información local, la publica.
+        // Firebase sí está conectado, pero todavía no hay datos publicados
+        // en esta sala. Si existe información local, esta PC la publica.
+        updateCloudBadge('online', 'Sala activa · esperando equipo...');
         if (products.length || ventas.length || movimientos.length || users.length) {
-          setTimeout(() => broadcastFullSync(true), 500);
+          setTimeout(() => broadcastFullSync(true), 300);
         }
         return;
       }
@@ -1619,15 +1666,15 @@ async function firebaseConnectRoom() {
       updateCloudBadge('offline', 'Error de Firebase');
     });
 
-    updateCloudBadge('connecting', 'Conectando a Firebase...');
-
-    // Comprobación inicial para que el indicador no dependa únicamente
-    // del callback del listener.
+    // Lectura inicial. Si existe una sala compartida, se aplica de inmediato.
     const snap = await firebaseRoomRef.once('value');
     if (snap.exists()) {
       await applyFirebaseSnapshot(snap.val(), false);
     } else {
-      updateCloudBadge('online', 'Firebase conectado · sala lista');
+      updateCloudBadge('online', 'Sala activa · esperando equipo...');
+      if (products.length || ventas.length || movimientos.length || users.length) {
+        await broadcastFullSync(true);
+      }
     }
 
     return true;
@@ -1643,7 +1690,7 @@ function initPeerNetwork() {
   return firebaseConnectRoom();
 }
 
-function saveCloudRoom() {
+async function saveCloudRoom() {
   const input = document.getElementById('cloud-room-input').value.trim();
   if (!input) {
     showToast('Ingrese una clave de sala', 'error');
@@ -1652,8 +1699,15 @@ function saveCloudRoom() {
 
   cloudRoomId = input;
   localStorage.setItem(STORAGE_PREFIX + 'cloud_room', cloudRoomId);
-  firebaseConnectRoom();
-  showToast(`Conectando a Firebase: ${cloudRoomId}...`);
+  await idbSetMeta('cloud_room', cloudRoomId);
+  updateCloudBadge('connecting', 'Conectando a Firebase...');
+
+  const ok = await firebaseConnectRoom();
+  if (ok) {
+    showToast(`Sala "${cloudRoomId}" conectada a Firebase`, 'success');
+  } else {
+    showToast('No fue posible conectar con Firebase', 'error');
+  }
 }
 
 function reconnectCloud() {
@@ -5356,7 +5410,7 @@ function updateOfflineBanner() {
   
   // Considerar offline si: no hay internet O peer desconectado
   const cloudText = document.getElementById('cloud-status-text')?.textContent || '';
-  const isCloudOffline = cloudText.includes('Sin conexion') || cloudText.includes('offline') || cloudText.includes('Error') || cloudText.includes('Desconectado') || cloudText.includes('Conexión cerrada');
+  const isCloudOffline = cloudText.includes('Sin conexion') || cloudText.includes('Sin conexión') || cloudText.includes('offline') || cloudText.includes('Error') || cloudText.includes('Desconectado') || cloudText.includes('Conexión cerrada');
   const shouldShowOffline = !navigator.onLine || isCloudOffline;
 
   if (shouldShowOffline) {
