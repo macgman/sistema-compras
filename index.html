@@ -1558,6 +1558,65 @@ function buildFirebasePayload() {
   };
 }
 
+// =============================================================
+// UTILIDADES DE SINCRONIZACIÓN Y BORRADOS
+// =============================================================
+function markDeleted(tombstoneArr, id) {
+  if (!Array.isArray(tombstoneArr) || id === undefined || id === null || id === '') return tombstoneArr;
+  const key = String(id);
+  const existing = tombstoneArr.find(t => String(t.id) === key);
+  if (existing) existing.deletedAt = Date.now();
+  else tombstoneArr.push({ id, deletedAt: Date.now() });
+  return tombstoneArr;
+}
+
+function mergeTombstones(localList, remoteList) {
+  const map = new Map();
+  (Array.isArray(localList) ? localList : []).forEach(t => map.set(String(t.id), t));
+  (Array.isArray(remoteList) ? remoteList : []).forEach(t => {
+    const key = String(t.id);
+    const existing = map.get(key);
+    if (!existing || (Number(t.deletedAt) || 0) > (Number(existing.deletedAt) || 0)) {
+      map.set(key, t);
+    }
+  });
+  return Array.from(map.values());
+}
+
+function isTombstoned(tombstoneArr, item) {
+  if (!item || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return false;
+  const t = tombstoneArr.find(x => String(x.id) === String(item.id));
+  if (!t) return false;
+  const itemTime = Number(item.updatedAt) || 0;
+  return (Number(t.deletedAt) || 0) >= itemTime;
+}
+
+function applyTombstones(arr, tombstoneArr) {
+  if (!Array.isArray(arr) || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return arr;
+  return arr.filter(item => !isTombstoned(tombstoneArr, item));
+}
+
+function mergeCollections(localArr, remoteArr) {
+  if (!Array.isArray(remoteArr)) return Array.isArray(localArr) ? localArr : [];
+  const map = new Map();
+  (Array.isArray(localArr) ? localArr : []).forEach(item => {
+    if (item && item.id !== undefined && item.id !== null) map.set(String(item.id), item);
+  });
+  remoteArr.forEach(remoteItem => {
+    if (!remoteItem || remoteItem.id === undefined || remoteItem.id === null) return;
+    const key = String(remoteItem.id);
+    if (!map.has(key)) {
+      map.set(key, remoteItem);
+    } else {
+      const localItem = map.get(key);
+      const remoteTime = Number(remoteItem.updatedAt) || 0;
+      const localTime = Number(localItem.updatedAt) || 0;
+      if (remoteTime >= localTime) map.set(key, remoteItem);
+    }
+  });
+  return Array.from(map.values()).filter(item => !item._deleted);
+}
+
 function mergeFirebaseState(remote) {
   if (!remote || !remote.data) return;
 
@@ -1663,7 +1722,8 @@ async function firebaseConnectRoom() {
       await applyFirebaseSnapshot(remote, true);
     }, (error) => {
       console.error('Firebase Realtime Database:', error);
-      updateCloudBadge('offline', 'Error de Firebase');
+      updateCloudBadge('offline', 'Error de Firebase: revisa reglas/red');
+      showToast('Firebase rechazó la conexión. Revisa las reglas de Realtime Database.', 'error');
     });
 
     // Lectura inicial. Si existe una sala compartida, se aplica de inmediato.
@@ -1681,6 +1741,7 @@ async function firebaseConnectRoom() {
   } catch (e) {
     console.error('No se pudo conectar a Firebase:', e);
     updateCloudBadge('offline', 'Error de conexión a Firebase');
+    showToast('No se pudo conectar con Firebase. Verifica Internet y la configuración de Realtime Database.', 'error');
     return false;
   }
 }
