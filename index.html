@@ -2905,6 +2905,30 @@ function normalizeSearchText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
+// Obtiene el año-mes de una fecha de compra sin depender de un único formato.
+// Soporta YYYY-MM-DD (formato del formulario) y DD/MM/YYYY o DD-MM-YYYY
+// para mantener compatibilidad con registros anteriores.
+// Si no puede reconocer la fecha con seguridad, devuelve ''.
+function getVentaYearMonth(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/);
+  if (iso) return `${iso[1]}-${iso[2]}`;
+
+  const local = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (local) {
+    const day = Number(local[1]);
+    const month = Number(local[2]);
+    const year = Number(local[3]);
+    if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}`;
+    }
+  }
+
+  return '';
+}
+
 function productMatchesSearch(p, rawQuery) {
   const q = normalizeSearchText(rawQuery);
   if (!q) return true;
@@ -3295,6 +3319,9 @@ function addVentaItem(id) {
 function saveVenta() {
   if (!ventaItems.length) { showToast('Agregue materiales', 'error'); return; }
 
+  // Protección defensiva: nunca validar folios contra compras eliminadas.
+  ventas = applyTombstones(ventas, deletedVentas);
+
   const folio = fixTextForExcel(document.getElementById('venta-folio-input').value || currentFolio);
   const fecha = document.getElementById('venta-fecha').value;
   const cliente = fixTextForExcel(document.getElementById('venta-cliente').value || 'Público');
@@ -3302,13 +3329,32 @@ function saveVenta() {
   if (!folio) { showToast('Ingrese un folio valido', 'error'); return; }
   if (!fecha) { showToast('Seleccione la fecha', 'error'); return; }
 
-  const ventaYearMonth = String(fecha).slice(0, 7);
+  const ventaYearMonth = getVentaYearMonth(fecha);
+  if (!ventaYearMonth) {
+    showToast('La fecha de la compra no tiene un formato valido', 'error');
+    return;
+  }
 
-  const duplicate = ventas.some(x =>
-    String(x.id) !== String(editingVentaId || '') &&
-    normalizeSearchText(x.folio) === normalizeSearchText(folio) &&
-    String(x.fecha || '').slice(0, 7) === ventaYearMonth
-  );
+  // Solo bloqueamos si existe una compra activa con el mismo folio
+  // en el mismo año/mes. Los registros eliminados (tombstones), vacíos
+  // o con una fecha no reconocible no pueden producir falsos duplicados.
+  const duplicate = ventas.some(x => {
+    if (!x) return false;
+
+    const sameId = String(x.id) === String(editingVentaId ?? '');
+    if (sameId) return false;
+
+    if (isTombstoned(deletedVentas, x)) return false;
+
+    const existingFolio = normalizeSearchText(x.folio);
+    if (!existingFolio) return false;
+
+    const existingYearMonth = getVentaYearMonth(x.fecha);
+    if (!existingYearMonth) return false;
+
+    return existingFolio === normalizeSearchText(folio) &&
+           existingYearMonth === ventaYearMonth;
+  });
 
   if (duplicate) {
     showToast('Ese folio ya esta registrado en el mismo mes', 'error');
