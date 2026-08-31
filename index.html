@@ -2966,7 +2966,13 @@ function renderInventario() {
       <td>${esc(p.unidad)}</td>
       <td>$${fmt(p.precio)}</td>
       <td>${stockBadge(p.cantidad)}</td>
-      <td>${p.bloqueado ? '<span class="badge badge-blocked"><i class="fas fa-lock"></i> BLOQUEADO</span>' : '<span class="badge badge-unlocked"><i class="fas fa-lock-open"></i> DISPONIBLE</span>'}</td>
+      <td>${
+        p.bloqueado
+          ? '<span class="badge badge-blocked"><i class="fas fa-lock"></i> BLOQUEADO</span>'
+          : (Number(p.cantidad) <= 0
+              ? '<span class="badge badge-critical"><i class="fas fa-box-open"></i> AGOTADO</span>'
+              : '<span class="badge badge-unlocked"><i class="fas fa-lock-open"></i> DISPONIBLE</span>')
+      }</td>
       <td class="admin-only">
         <div style="display:flex; gap:7px; flex-wrap:wrap;">
           <button class="btn btn-entry btn-sm" onclick="openEntradaModal(${p.id})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
