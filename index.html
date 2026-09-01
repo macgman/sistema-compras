@@ -1537,6 +1537,7 @@ function getFirebaseRoomPath() {
 }
 
 function buildFirebasePayload() {
+  const folioNumber = getFolioNumber(currentFolio);
   return {
     data: {
       products,
@@ -1544,19 +1545,25 @@ function buildFirebasePayload() {
       movimientos,
       currentFolio,
       currentFolioUpdatedAt,
-      // Último número de folio reservado. Se conserva en Firebase para que
-      // dos equipos no puedan tomar el mismo consecutivo al mismo tiempo.
-      folioSequence: getFolioNumber(currentFolio) - 1,
+      folioSequence: Math.max(0, folioNumber - 1),
       users,
       deletedProducts,
       deletedVentas,
       deletedMovimientos,
       deletedUsers
     },
+    // El folio tiene su propio registro de autoridad. Esto evita que una
+    // sincronización vieja de otra computadora vuelva a escribir F-431
+    // después de que el usuario haya establecido manualmente F-016.
+    folioState: {
+      value: currentFolio,
+      updatedAt: Number(currentFolioUpdatedAt) || Date.now(),
+      sequence: Math.max(0, folioNumber - 1)
+    },
     meta: {
       clientId: firebaseClientId,
       writtenAt: Date.now(),
-      version: 2
+      version: 3
     }
   };
 }
@@ -1645,25 +1652,24 @@ function mergeFirebaseState(remote) {
     users = applyTombstones(mergeCollections(users, d.users), deletedUsers);
   }
 
-  const remoteFolioTime = Number(d.currentFolioUpdatedAt) || 0;
-  if (d.currentFolio && remoteFolioTime >= currentFolioUpdatedAt) {
-    currentFolio = d.currentFolio;
+  // El folioState es la autoridad para el consecutivo. Si el archivo remoto
+  // todavía no tiene folioState, usamos los campos heredados por compatibilidad.
+  const remoteFolioValue = remote?.folioState?.value || d.currentFolio || '';
+  const remoteFolioTime = Number(remote?.folioState?.updatedAt || d.currentFolioUpdatedAt) || 0;
+  if (remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
+    currentFolio = String(remoteFolioValue);
     currentFolioUpdatedAt = remoteFolioTime;
   }
 
-  // El contador NO puede imponerse por sí solo sobre un cambio manual de folio.
-  // Antes, un folioSequence antiguo (por ejemplo 430) podía convertir un
-  // F-016 recién guardado nuevamente en F-431 al sincronizar otra computadora.
-  // El consecutivo remoto solo se acepta cuando pertenece a una versión de
-  // folio igual o más reciente que la versión local.
-  const remoteSequence = Number(d.folioSequence);
-  const sequenceFolioTime = Number(d.currentFolioUpdatedAt) || 0;
-  if (Number.isFinite(remoteSequence) && remoteSequence >= 0 && sequenceFolioTime >= (Number(currentFolioUpdatedAt) || 0)) {
-    const localNext = getFolioNumber(currentFolio);
+  // El sequence nunca puede reemplazar un folio manual más reciente.
+  // Solo sirve para avanzar si pertenece a la misma versión remota.
+  const remoteSequence = Number(remote?.folioState?.sequence ?? d.folioSequence);
+  if (Number.isFinite(remoteSequence) && remoteSequence >= 0 && remoteFolioTime > 0 && remoteFolioTime >= (Number(currentFolioUpdatedAt) || 0)) {
     const remoteNext = remoteSequence + 1;
-    if (remoteNext > localNext) {
-      currentFolio = buildFolioFromNumber(remoteNext, d.currentFolio || currentFolio);
-      currentFolioUpdatedAt = sequenceFolioTime;
+    const localNext = getFolioNumber(currentFolio);
+    if (remoteNext > localNext && remoteFolioValue) {
+      currentFolio = buildFolioFromNumber(remoteNext, remoteFolioValue);
+      currentFolioUpdatedAt = remoteFolioTime;
     }
   }
 
@@ -1738,6 +1744,16 @@ async function firebaseConnectRoom() {
         return;
       }
 
+      const fs = remote?.folioState;
+      const fsTime = Number(fs?.updatedAt) || 0;
+      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+        currentFolio = String(fs.value);
+        currentFolioUpdatedAt = fsTime;
+        await idbSetMeta('folio', currentFolio);
+        localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+        const fv = document.getElementById('folio-val');
+        if (fv) fv.textContent = currentFolio;
+      }
       await applyFirebaseSnapshot(remote, true);
     }, (error) => {
       console.error('Firebase Realtime Database:', error);
@@ -1748,7 +1764,16 @@ async function firebaseConnectRoom() {
     // Lectura inicial. Si existe una sala compartida, se aplica de inmediato.
     const snap = await firebaseRoomRef.once('value');
     if (snap.exists()) {
-      await applyFirebaseSnapshot(snap.val(), false);
+      const initialRemote = snap.val();
+      const fs = initialRemote?.folioState;
+      const fsTime = Number(fs?.updatedAt) || 0;
+      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+        currentFolio = String(fs.value);
+        currentFolioUpdatedAt = fsTime;
+        await idbSetMeta('folio', currentFolio);
+        localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+      }
+      await applyFirebaseSnapshot(initialRemote, false);
     } else {
       updateCloudBadge('online', 'Sala activa · esperando equipo...');
       if (products.length || ventas.length || movimientos.length || users.length) {
@@ -5028,13 +5053,16 @@ async function saveFolio() {
     return;
   }
 
-  // Un cambio hecho desde el botón de Folio es una decisión MANUAL del usuario.
-  // Se guarda primero de forma local y después directamente en Firebase.
-  // IMPORTANTE: no usamos broadcastFullSync() aquí, porque esa función mezcla
-  // primero el estado remoto y podría volver a introducir un folio antiguo.
+  const newNumber = getFolioNumber(newFolio);
+  if (!newNumber) {
+    showToast('El folio debe contener un numero valido', 'error');
+    return;
+  }
+
+  // Este cambio es MANUAL y se convierte en la versión autoritativa.
   currentFolio = newFolio;
   currentFolioUpdatedAt = Date.now();
-  const sequence = Math.max(0, getFolioNumber(currentFolio) - 1);
+  const sequence = Math.max(0, newNumber - 1);
 
   await idbSetMeta('folio', currentFolio);
   localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
@@ -5045,18 +5073,34 @@ async function saveFolio() {
   if (ventaFolioInput && !editingVentaId) ventaFolioInput.value = currentFolio;
 
   try {
-    if (initFirebase()) {
-      const folioRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
-      await folioRef.update({
-        currentFolio,
-        currentFolioUpdatedAt,
-        folioSequence: sequence
-      });
-      firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, Date.now());
-      updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
-    }
+    if (!initFirebase()) throw new Error('Firebase no disponible');
+    if (!firebaseRoomRef) await firebaseConnectRoom();
+    if (!firebaseRoomRef) throw new Error('Sala Firebase no disponible');
+
+    // Escritura directa y atómica del estado del folio. No pasa por
+    // broadcastFullSync(), porque una sincronización general antigua podría
+    // volver a introducir el folio anterior.
+    const folioDataRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
+    const folioStateRef = firebaseDB.ref(getFirebaseRoomPath() + '/folioState');
+    const now = Date.now();
+
+    await folioDataRef.update({
+      currentFolio: currentFolio,
+      currentFolioUpdatedAt: currentFolioUpdatedAt,
+      folioSequence: sequence
+    });
+    await folioStateRef.set({
+      value: currentFolio,
+      updatedAt: currentFolioUpdatedAt,
+      sequence: sequence,
+      clientId: firebaseClientId,
+      writtenAt: now
+    });
+
+    firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, now);
+    updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
   } catch (e) {
-    console.warn('[FOLIO] No se pudo guardar el folio manual en Firebase:', e);
+    console.warn('[FOLIO] No se pudo guardar el folio autoritativo en Firebase:', e);
     showToast('Folio guardado localmente; Firebase se actualizará al reconectar', 'warning');
   }
 
