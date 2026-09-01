@@ -1651,16 +1651,19 @@ function mergeFirebaseState(remote) {
     currentFolioUpdatedAt = remoteFolioTime;
   }
 
-  // Si Firebase trae un consecutivo más avanzado que el local, nunca
-  // permitimos regresar el folio. Esto corrige el caso en que una PC
-  // conserva en pantalla un número anterior después de sincronizar.
+  // El contador NO puede imponerse por sí solo sobre un cambio manual de folio.
+  // Antes, un folioSequence antiguo (por ejemplo 430) podía convertir un
+  // F-016 recién guardado nuevamente en F-431 al sincronizar otra computadora.
+  // El consecutivo remoto solo se acepta cuando pertenece a una versión de
+  // folio igual o más reciente que la versión local.
   const remoteSequence = Number(d.folioSequence);
-  if (Number.isFinite(remoteSequence) && remoteSequence >= 0) {
+  const sequenceFolioTime = Number(d.currentFolioUpdatedAt) || 0;
+  if (Number.isFinite(remoteSequence) && remoteSequence >= 0 && sequenceFolioTime >= (Number(currentFolioUpdatedAt) || 0)) {
     const localNext = getFolioNumber(currentFolio);
     const remoteNext = remoteSequence + 1;
     if (remoteNext > localNext) {
-      currentFolio = buildFolioFromNumber(remoteNext, currentFolio);
-      currentFolioUpdatedAt = Math.max(currentFolioUpdatedAt, Date.now());
+      currentFolio = buildFolioFromNumber(remoteNext, d.currentFolio || currentFolio);
+      currentFolioUpdatedAt = sequenceFolioTime;
     }
   }
 
@@ -5019,16 +5022,16 @@ function clearVenta() {
 function openFolioModal() { document.getElementById('folio-input').value = currentFolio; openModal('modal-folio'); }
 async function saveFolio() {
   const input = document.getElementById('folio-input');
-  const newFolio = fixTextForExcel(input ? input.value : '');
+  const newFolio = fixTextForExcel(input ? input.value : '').trim();
   if (!newFolio) {
     showToast('Ingrese un folio valido', 'error');
     return;
   }
 
   // Un cambio hecho desde el botón de Folio es una decisión MANUAL del usuario.
-  // No debe pasar por broadcastFullSync(), porque esa función primero mezcla
-  // el estado remoto y un consecutivo antiguo (por ejemplo F-431) podría volver
-  // a imponerse antes de guardar el nuevo F-016.
+  // Se guarda primero de forma local y después directamente en Firebase.
+  // IMPORTANTE: no usamos broadcastFullSync() aquí, porque esa función mezcla
+  // primero el estado remoto y podría volver a introducir un folio antiguo.
   currentFolio = newFolio;
   currentFolioUpdatedAt = Date.now();
   const sequence = Math.max(0, getFolioNumber(currentFolio) - 1);
@@ -5041,9 +5044,6 @@ async function saveFolio() {
   const ventaFolioInput = document.getElementById('venta-folio-input');
   if (ventaFolioInput && !editingVentaId) ventaFolioInput.value = currentFolio;
 
-  // Guardado directo y atómico de SOLO el control del folio en Firebase.
-  // Así el valor manual queda por encima de un folio remoto viejo y, al mismo
-  // tiempo, el contador reservado se ajusta al nuevo consecutivo.
   try {
     if (initFirebase()) {
       const folioRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
@@ -5052,7 +5052,7 @@ async function saveFolio() {
         currentFolioUpdatedAt,
         folioSequence: sequence
       });
-      firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, currentFolioUpdatedAt);
+      firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, Date.now());
       updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
     }
   } catch (e) {
