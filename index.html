@@ -4028,6 +4028,21 @@ function f361SetFormulaCell(doc, ref, formula, cached){
   f.textContent=formula; v.textContent=String(Number(cached)||0);
   c.appendChild(f); c.appendChild(v);
 }
+
+function f361RemoveBrokenFormulaCells(doc){
+  const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const cells=Array.from(doc.getElementsByTagNameNS(ns,'c'));
+  for(const c of cells){
+    const f=c.getElementsByTagNameNS(ns,'f')[0];
+    const v=c.getElementsByTagNameNS(ns,'v')[0];
+    const formula=String(f?.textContent||'');
+    const cached=String(v?.textContent||'');
+    if(/#REF!|#DIV\/0!|#NAME\?|#VALUE!|#N\/A/i.test(formula) || /#REF!|#DIV\/0!|#NAME\?|#VALUE!|#N\/A/i.test(cached)){
+      c.removeAttribute('t');
+      f361ClearCell(c);
+    }
+  }
+}
 function f361SetRowHeight(doc,row,height){
   const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
   const rows=doc.getElementsByTagNameNS(ns,'row');
@@ -4230,6 +4245,12 @@ function f361ModifySheetXml(xml,v){
   f361SetFormulaCell(doc,`J${ivaRow}`,`0.16*J${subtotalRow}`,iva);
   f361SetFormulaCell(doc,`J${totalRow}`,`SUM(J${ivaRow}+J${subtotalRow})`,total);
 
+  // La plantilla original contiene dos fórmulas heredadas con #REF! (por ejemplo
+  // K21/J22). Al insertar filas esas celdas también se desplazan y Excel puede
+  // considerar el libro dañado aunque las fórmulas de los totales sean correctas.
+  // Las eliminamos del documento final porque no forman parte del F-361 generado.
+  f361RemoveBrokenFormulaCells(doc);
+
   // Las filas que estaban después de los materiales fueron desplazadas arriba.
   // Reescribimos las fórmulas/etiquetas de totales en su nueva posición.
   f361SetTextCell(doc,`I${subtotalRow}`,'SUBTOTAL');
@@ -4324,7 +4345,7 @@ async function f361BuildExactXlsx(v){
 
     const crc=f361Crc32(data);
     const comp=data.length, uncomp=data.length;
-    const entryMeta={...e, method:0, flags:0};
+    const entryMeta={...e, method:0, flags:0x800};
     const local=f361EncodeLocalHeader(entryMeta,crc,comp,uncomp,offset,nameBytes);
     chunks.push(local,data);
     const localOffset=offset;
