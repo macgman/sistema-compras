@@ -5017,7 +5017,52 @@ function clearVenta() {
 }
 
 function openFolioModal() { document.getElementById('folio-input').value = currentFolio; openModal('modal-folio'); }
-function saveFolio() { currentFolio = fixTextForExcel(document.getElementById('folio-input').value); if (!currentFolio) { showToast('Ingrese un folio valido', 'error'); return; } currentFolioUpdatedAt = Date.now(); localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt)); document.getElementById('folio-val').textContent = currentFolio; const ventaFolioInput = document.getElementById('venta-folio-input'); if (ventaFolioInput && !editingVentaId) ventaFolioInput.value = currentFolio; broadcastFullSync(); closeModal('modal-folio'); showToast('Folio actualizado'); }
+async function saveFolio() {
+  const input = document.getElementById('folio-input');
+  const newFolio = fixTextForExcel(input ? input.value : '');
+  if (!newFolio) {
+    showToast('Ingrese un folio valido', 'error');
+    return;
+  }
+
+  // Un cambio hecho desde el botón de Folio es una decisión MANUAL del usuario.
+  // No debe pasar por broadcastFullSync(), porque esa función primero mezcla
+  // el estado remoto y un consecutivo antiguo (por ejemplo F-431) podría volver
+  // a imponerse antes de guardar el nuevo F-016.
+  currentFolio = newFolio;
+  currentFolioUpdatedAt = Date.now();
+  const sequence = Math.max(0, getFolioNumber(currentFolio) - 1);
+
+  await idbSetMeta('folio', currentFolio);
+  localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+
+  const folioVal = document.getElementById('folio-val');
+  if (folioVal) folioVal.textContent = currentFolio;
+  const ventaFolioInput = document.getElementById('venta-folio-input');
+  if (ventaFolioInput && !editingVentaId) ventaFolioInput.value = currentFolio;
+
+  // Guardado directo y atómico de SOLO el control del folio en Firebase.
+  // Así el valor manual queda por encima de un folio remoto viejo y, al mismo
+  // tiempo, el contador reservado se ajusta al nuevo consecutivo.
+  try {
+    if (initFirebase()) {
+      const folioRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
+      await folioRef.update({
+        currentFolio,
+        currentFolioUpdatedAt,
+        folioSequence: sequence
+      });
+      firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, currentFolioUpdatedAt);
+      updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
+    }
+  } catch (e) {
+    console.warn('[FOLIO] No se pudo guardar el folio manual en Firebase:', e);
+    showToast('Folio guardado localmente; Firebase se actualizará al reconectar', 'warning');
+  }
+
+  closeModal('modal-folio');
+  showToast('Folio actualizado: ' + currentFolio);
+}
 
 // =============================================================
 // REINICIO TOTAL DEL SISTEMA (BORRAR TODO PARA OTRO PROYECTO)
