@@ -1544,6 +1544,9 @@ function buildFirebasePayload() {
       movimientos,
       currentFolio,
       currentFolioUpdatedAt,
+      // Último número de folio reservado. Se conserva en Firebase para que
+      // dos equipos no puedan tomar el mismo consecutivo al mismo tiempo.
+      folioSequence: getFolioNumber(currentFolio) - 1,
       users,
       deletedProducts,
       deletedVentas,
@@ -1646,6 +1649,19 @@ function mergeFirebaseState(remote) {
   if (d.currentFolio && remoteFolioTime >= currentFolioUpdatedAt) {
     currentFolio = d.currentFolio;
     currentFolioUpdatedAt = remoteFolioTime;
+  }
+
+  // Si Firebase trae un consecutivo más avanzado que el local, nunca
+  // permitimos regresar el folio. Esto corrige el caso en que una PC
+  // conserva en pantalla un número anterior después de sincronizar.
+  const remoteSequence = Number(d.folioSequence);
+  if (Number.isFinite(remoteSequence) && remoteSequence >= 0) {
+    const localNext = getFolioNumber(currentFolio);
+    const remoteNext = remoteSequence + 1;
+    if (remoteNext > localNext) {
+      currentFolio = buildFolioFromNumber(remoteNext, currentFolio);
+      currentFolioUpdatedAt = Math.max(currentFolioUpdatedAt, Date.now());
+    }
   }
 
   sanitizeStoredData();
@@ -2201,6 +2217,15 @@ async function init() {
   ensureLoginUsers();
 
   currentFolio = await idbGetMeta('folio', 'C-001');
+  // Reparación automática: si el folio guardado quedó por detrás del historial,
+  // arrancamos en el siguiente número disponible.
+  const repairedNext = getHighestActiveFolioNumber() + 1;
+  if (getFolioNumber(currentFolio) < repairedNext) {
+    currentFolio = buildFolioFromNumber(repairedNext, currentFolio);
+    currentFolioUpdatedAt = Date.now();
+    await idbSetMeta('folio', currentFolio);
+    localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+  }
   cloudRoomId = await idbGetMeta('cloud_room', cloudRoomId);
   deletedProducts = await idbGetMeta('deletedProducts', []);
   deletedVentas = await idbGetMeta('deletedVentas', []);
@@ -3341,18 +3366,91 @@ function diagnosticarFoliosMes(folio, fecha) {
   return encontrados;
 }
 
-function saveVenta() {
+async function reserveNextFolioFromFirebase(requestedFolio) {
+  if (!initFirebase()) return null;
+  if (!firebaseRoomRef) await firebaseConnectRoom();
+  if (!firebaseRoomRef) return null;
+
+  const requestedNumber = getFolioNumber(requestedFolio);
+  if (!requestedNumber) return null;
+
+  try {
+    const sequenceRef = firebaseDB.ref(getFirebaseRoomPath() + '/data/folioSequence');
+    const result = await sequenceRef.transaction(current => {
+      const currentNumber = Number(current) || 0;
+      // El número solicitado es el que está mostrando el sistema. Si otro
+      // equipo ya lo reservó, el siguiente disponible se toma automáticamente.
+      return Math.max(currentNumber, requestedNumber - 1) + 1;
+    });
+
+    if (!result.committed) return null;
+    const reservedNumber = Number(result.snapshot.val()) || 0;
+    return reservedNumber > 0 ? buildFolioFromNumber(reservedNumber, requestedFolio) : null;
+  } catch (e) {
+    console.warn('[FOLIO] No se pudo reservar en Firebase; se usa respaldo local.', e);
+    return null;
+  }
+}
+
+function getFolioNumber(folio) {
+  const match = String(folio || '').match(/(\d+)\s*$/);
+  return match ? (parseInt(match[1], 10) || 0) : 0;
+}
+
+function buildFolioFromNumber(number, referenceFolio = currentFolio) {
+  const ref = String(referenceFolio || currentFolio || 'C-001');
+  const prefix = ref.replace(/\d+\s*$/, '') || 'C-';
+  return prefix + String(Math.max(1, Number(number) || 1)).padStart(3, '0');
+}
+
+function getHighestActiveFolioNumber() {
+  let max = Math.max(0, getFolioNumber(currentFolio) - 1);
+  (Array.isArray(ventas) ? ventas : []).forEach(v => {
+    if (!v || isTombstoned(deletedVentas, v)) return;
+    max = Math.max(max, getFolioNumber(v.folio));
+  });
+  return max;
+}
+
+async function prepareFolioForNewVenta(capturedFolio) {
+  const normalizedCaptured = fixTextForExcel(capturedFolio || currentFolio);
+  const normalizedCurrent = fixTextForExcel(currentFolio);
+  const isAutomatic = normalizeSearchText(normalizedCaptured) === normalizeSearchText(normalizedCurrent);
+
+  if (!isAutomatic) return normalizedCaptured;
+
+  // En línea: Firebase asigna el consecutivo de forma atómica.
+  const reserved = await reserveNextFolioFromFirebase(normalizedCurrent);
+  if (reserved) return reserved;
+
+  // Respaldo local cuando no hay conexión: jamás baja del máximo existente.
+  const nextNumber = Math.max(getFolioNumber(normalizedCurrent), getHighestActiveFolioNumber() + 1);
+  return buildFolioFromNumber(nextNumber, normalizedCurrent);
+}
+
+async function saveVenta() {
   if (!ventaItems.length) { showToast('Agregue materiales', 'error'); return; }
 
   // Protección defensiva: nunca validar folios contra compras eliminadas.
   ventas = applyTombstones(ventas, deletedVentas);
 
-  const folio = fixTextForExcel(document.getElementById('venta-folio-input').value || currentFolio);
+  const capturedFolio = fixTextForExcel(document.getElementById('venta-folio-input').value || currentFolio);
   const fecha = document.getElementById('venta-fecha').value;
   const cliente = fixTextForExcel(document.getElementById('venta-cliente').value || 'Público');
   const compra = fixTextForExcel(document.getElementById('venta-compra').value || '');
-  if (!folio) { showToast('Ingrese un folio valido', 'error'); return; }
+  if (!capturedFolio) { showToast('Ingrese un folio valido', 'error'); return; }
   if (!fecha) { showToast('Seleccione la fecha', 'error'); return; }
+
+  const isEditing = editingVentaId !== null && editingVentaId !== undefined;
+  let folio = capturedFolio;
+
+  // Para una compra nueva, si el usuario dejó el folio automático, se reserva
+  // antes de validar/guardar. Así el consecutivo no depende del reloj de cada PC.
+  if (!isEditing) {
+    folio = await prepareFolioForNewVenta(capturedFolio);
+    const folioInput = document.getElementById('venta-folio-input');
+    if (folioInput) folioInput.value = folio;
+  }
 
   const ventaYearMonth = getVentaYearMonth(fecha);
   if (!ventaYearMonth) {
@@ -3426,7 +3524,6 @@ function saveVenta() {
     });
   }
 
-  const isEditing = editingVentaId !== null && editingVentaId !== undefined;
   const now = Date.now();
   const v = {
     id: isEditing ? editingVentaId : now,
@@ -3454,12 +3551,12 @@ function saveVenta() {
     ventas[oldIndex] = v;
   } else {
     ventas.unshift(v);
-    if (folio === currentFolio) {
-      const n = parseInt(currentFolio.replace(/[^0-9]/g, ''), 10) || 0;
-      const pr = currentFolio.replace(/[0-9]/g, '') || 'C-';
-      currentFolio = pr + String(n + 1).padStart(3, '0');
-      document.getElementById('folio-val').textContent = currentFolio;
-    }
+    // El folio siguiente siempre se calcula a partir del folio realmente
+    // utilizado, nunca a partir de un valor que pudiera quedar obsoleto.
+    currentFolio = buildFolioFromNumber(getFolioNumber(folio) + 1, folio);
+    currentFolioUpdatedAt = Date.now();
+    localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+    document.getElementById('folio-val').textContent = currentFolio;
   }
 
   v.items.forEach(i => {
@@ -4920,7 +5017,7 @@ function clearVenta() {
 }
 
 function openFolioModal() { document.getElementById('folio-input').value = currentFolio; openModal('modal-folio'); }
-function saveFolio() { currentFolio = document.getElementById('folio-input').value; currentFolioUpdatedAt = Date.now(); localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt)); broadcastFullSync(); document.getElementById('folio-val').textContent = currentFolio; closeModal('modal-folio'); showToast('Folio actualizado'); }
+function saveFolio() { currentFolio = fixTextForExcel(document.getElementById('folio-input').value); if (!currentFolio) { showToast('Ingrese un folio valido', 'error'); return; } currentFolioUpdatedAt = Date.now(); localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt)); document.getElementById('folio-val').textContent = currentFolio; const ventaFolioInput = document.getElementById('venta-folio-input'); if (ventaFolioInput && !editingVentaId) ventaFolioInput.value = currentFolio; broadcastFullSync(); closeModal('modal-folio'); showToast('Folio actualizado'); }
 
 // =============================================================
 // REINICIO TOTAL DEL SISTEMA (BORRAR TODO PARA OTRO PROYECTO)
