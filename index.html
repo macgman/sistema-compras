@@ -2245,20 +2245,29 @@ async function init() {
   ensureLoginUsers();
 
   currentFolio = await idbGetMeta('folio', 'C-001');
-  // Reparación automática: si el folio guardado quedó por detrás del historial,
-  // arrancamos en el siguiente número disponible.
-  const repairedNext = getHighestActiveFolioNumber() + 1;
-  if (getFolioNumber(currentFolio) < repairedNext) {
-    currentFolio = buildFolioFromNumber(repairedNext, currentFolio);
-    currentFolioUpdatedAt = Date.now();
-    await idbSetMeta('folio', currentFolio);
-    localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
-  }
+  // IMPORTANTE: un folio establecido manualmente debe conservarse aunque
+  // el historial contenga folios con números mayores (por ejemplo, F-431).
+  // La bandera se guarda en IndexedDB y evita que el arranque vuelva a
+  // "reparar" F-016 hacia F-431 después de actualizar la página.
+  const folioManualOverride = await idbGetMeta('folio_manual_override', false);
+
   cloudRoomId = await idbGetMeta('cloud_room', cloudRoomId);
   deletedProducts = await idbGetMeta('deletedProducts', []);
   deletedVentas = await idbGetMeta('deletedVentas', []);
   deletedMovimientos = await idbGetMeta('deletedMovimientos', []);
   deletedUsers = await idbGetMeta('deletedUsers', []);
+
+  // Solo se aplica la reparación automática cuando el usuario NO ha fijado
+  // manualmente el consecutivo. Así se conserva una elección como F-016.
+  if (!folioManualOverride) {
+    const repairedNext = getHighestActiveFolioNumber() + 1;
+    if (getFolioNumber(currentFolio) < repairedNext) {
+      currentFolio = buildFolioFromNumber(repairedNext, currentFolio);
+      currentFolioUpdatedAt = Date.now();
+      await idbSetMeta('folio', currentFolio);
+      localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
+    }
+  }
 
   sanitizeStoredData();
   // Saneamiento defensivo: si por alguna razón quedó guardado un registro
@@ -5065,6 +5074,9 @@ async function saveFolio() {
   const sequence = Math.max(0, newNumber - 1);
 
   await idbSetMeta('folio', currentFolio);
+  // Marca persistente: este folio fue elegido manualmente y no debe ser
+  // reemplazado por una "reparación" basada en folios históricos mayores.
+  await idbSetMeta('folio_manual_override', true);
   localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
 
   const folioVal = document.getElementById('folio-val');
@@ -5170,6 +5182,7 @@ async function performFullReset() {
   await idbClearAndPutAll('movimientos', []);
   await idbClearAndPutAll('users', freshUsers);
   await idbSetMeta('folio', 'C-001');
+  await idbSetMeta('folio_manual_override', false);
   await idbSetMeta('cloud_room', defaultRoom);
   await idbSetMeta('deletedProducts', []);
   await idbSetMeta('deletedVentas', []);
