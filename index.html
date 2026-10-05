@@ -1539,12 +1539,75 @@ const DEFAULT_USERS = [
   { id: 1, username: 'admin', passHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Administrador Principal', role: 'admin', active: true, updatedAt: 0 },
   { id: 2, username: 'operador', passHash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', name: 'Operador General', role: 'user', active: true, updatedAt: 0 }
 ];
-let users = DEFAULT_USERS.map(u => ({...u, updatedAt: Date.now()}));
+// Los usuarios predeterminados no se marcan como modificados al abrir
+// una computadora nueva. Esto evita que una copia local con admin123/user123
+// pueda competir contra una contraseña que ya fue cambiada en otra PC.
+let users = DEFAULT_USERS.map(u => ({...u}));
 
 function ensureLoginUsers() {
   if (!Array.isArray(users) || users.length === 0) {
-    users = DEFAULT_USERS.map(u => ({...u, updatedAt: Date.now()}));
+    users = DEFAULT_USERS.map(u => ({...u}));
   }
+}
+
+function getDefaultUserByIdOrUsername(user) {
+  if (!user) return null;
+  return DEFAULT_USERS.find(def =>
+    String(def.id) === String(user.id) ||
+    String(def.username).toLowerCase() === String(user.username || '').toLowerCase()
+  ) || null;
+}
+
+function isDefaultUserCredential(user) {
+  const def = getDefaultUserByIdOrUsername(user);
+  if (!def) return false;
+  if (user.passHash && def.passHash && user.passHash === def.passHash) return true;
+  // Compatibilidad con registros antiguos que todavía conservaran pass.
+  if (user.pass && def.id === 1 && user.pass === 'admin123') return true;
+  if (user.pass && def.id === 2 && user.pass === 'user123') return true;
+  return false;
+}
+
+function mergeUsers(localArr, remoteArr) {
+  if (!Array.isArray(remoteArr)) return Array.isArray(localArr) ? localArr : [];
+
+  const map = new Map();
+  (Array.isArray(localArr) ? localArr : []).forEach(user => {
+    if (user && user.id !== undefined && user.id !== null) {
+      map.set(String(user.id), user);
+    }
+  });
+
+  remoteArr.forEach(remoteUser => {
+    if (!remoteUser || remoteUser.id === undefined || remoteUser.id === null) return;
+
+    const key = String(remoteUser.id);
+    const localUser = map.get(key);
+    if (!localUser) {
+      map.set(key, remoteUser);
+      return;
+    }
+
+    // Regla especial para cuentas predeterminadas:
+    // una contraseña personalizada siempre vence a la contraseña inicial,
+    // sin importar qué PC tenga el updatedAt más reciente.
+    const localIsDefault = isDefaultUserCredential(localUser);
+    const remoteIsDefault = isDefaultUserCredential(remoteUser);
+
+    if (localIsDefault && !remoteIsDefault) {
+      map.set(key, remoteUser);
+      return;
+    }
+    if (!localIsDefault && remoteIsDefault) {
+      return;
+    }
+
+    const remoteTime = Number(remoteUser.updatedAt) || 0;
+    const localTime = Number(localUser.updatedAt) || 0;
+    if (remoteTime >= localTime) map.set(key, remoteUser);
+  });
+
+  return Array.from(map.values()).filter(user => !user._deleted);
 }
 
 // --- CORRECCIÓN SINCRONIZACIÓN DE BORRADOS (TOMBSTONES) ---
@@ -1733,7 +1796,7 @@ function mergeFirebaseState(remote) {
     valesManuales = applyTombstones(mergeCollections(valesManuales, d.valesManuales), deletedValesManuales);
   }
   if (Array.isArray(d.users)) {
-    users = applyTombstones(mergeCollections(users, d.users), deletedUsers);
+    users = applyTombstones(mergeUsers(users, d.users), deletedUsers);
   }
 
   // El folioState es la autoridad para el consecutivo. Si el archivo remoto
@@ -2369,7 +2432,10 @@ async function init() {
   if (idbUsers.length > 0) {
     users = idbUsers;
   } else {
-    users = DEFAULT_USERS.map(u => ({...u, updatedAt: Date.now()}));
+    // Primera apertura de esta computadora: crear las cuentas base sin
+    // simular una modificación reciente. Firebase podrá reemplazarlas por
+    // la versión compartida real al conectarse a la sala.
+    users = DEFAULT_USERS.map(u => ({...u}));
     await idbPutAll('users', users);
   }
   ensureLoginUsers();
@@ -2583,11 +2649,15 @@ async function attemptLoginMulti() {
   );
 
   if (!match && uInput === 'admin' && pInput === 'admin123') {
-    match = users.find(u => String(u.username).toLowerCase() === 'admin');
+    const defaultAdmin = DEFAULT_USERS.find(u => String(u.username).toLowerCase() === 'admin');
+    const localAdmin = users.find(u => String(u.username).toLowerCase() === 'admin');
 
-    if (!match) {
-      match = {
-        id: 1,
+    // La contraseña inicial solo puede recuperar una cuenta que todavía
+    // conserva la credencial inicial. Si el administrador ya estableció una
+    // contraseña nueva, una PC antigua no podrá volver a imponer admin123.
+    if (!localAdmin || isDefaultUserCredential(localAdmin)) {
+      match = localAdmin || {
+        id: defaultAdmin ? defaultAdmin.id : 1,
         username: 'admin',
         passHash: pHash,
         name: 'Administrador Principal',
@@ -2595,24 +2665,25 @@ async function attemptLoginMulti() {
         active: true,
         updatedAt: Date.now()
       };
-      users.unshift(match);
-    } else {
-      match.passHash = pHash;
-      delete match.pass;
-      match.role = 'admin';
-      match.active = true;
-      match.name = match.name || 'Administrador Principal';
-      match.updatedAt = Date.now();
-    }
 
-    await saveLocalData();
+      if (localAdmin) {
+        match.passHash = pHash;
+        delete match.pass;
+        match.role = 'admin';
+        match.active = true;
+        match.name = match.name || 'Administrador Principal';
+        match.updatedAt = Date.now();
+      }
 
-    // Intentar publicar la reparación en Firebase, pero permitir el acceso
-    // aunque Firebase no esté disponible.
-    try {
-      await broadcastFullSync();
-    } catch (e) {
-      console.warn('No se pudo publicar la reparación del administrador:', e);
+      await saveLocalData();
+
+      // Intentar publicar la reparación en Firebase, pero permitir el acceso
+      // aunque Firebase no esté disponible.
+      try {
+        await broadcastFullSync();
+      } catch (e) {
+        console.warn('No se pudo publicar la reparación del administrador:', e);
+      }
     }
   }
 
@@ -5279,6 +5350,14 @@ async function exportCurrentValeManualF361() {
       `Folio ${vale.folio} descargado como Excel. Ábrelo desde Descargas.`,
       'success'
     );
+
+    // Solo en Vale Manual: después de guardar, vuelve a mostrar la ventana
+    // de acciones para que el usuario pueda elegir "Abrir archivo".
+    const nextAction = await askFolioAction();
+    if (nextAction === 'open') {
+      await openFolioXlsm(vale);
+      showToast(`Folio ${vale.folio} preparado para abrir.`, 'success');
+    }
   } catch (e) {
     if (e?.name === 'AbortError') return;
     console.error('Exportación Vale Manual:', e);
@@ -5466,7 +5545,7 @@ function renderValeManualItems() {
         <input value="${esc(i.clave)}" placeholder="Clave" onchange="updateValeManualItem(${idx}, 'clave', this.value)">
         <input value="${esc(i.descripcion)}" placeholder="Ej. Guantes, jeringas..." onchange="updateValeManualItem(${idx}, 'descripcion', this.value)">
         <input value="${esc(i.unidad || 'PIEZA')}" placeholder="PIEZA" onchange="updateValeManualItem(${idx}, 'unidad', this.value)">
-        <input type="number" min="0.01" step="0.01" value="${Number(i.cantidad) || 1}" onchange="updateValeManualItem(${idx}, 'cantidad', this.value)">
+        <input type="number" min="1" step="1" value="${Number(i.cantidad) || 1}" onchange="updateValeManualItem(${idx}, 'cantidad', this.value)">
         <input type="number" min="0" step="0.01" value="${Number(i.precio) || 0}" onchange="updateValeManualItem(${idx}, 'precio', this.value)" onkeydown="handleValeItemTab(event, ${idx})">
         <strong class="vale-item-amount" style="text-align:right; white-space:nowrap;">$${fmt((Number(i.cantidad)||0)*(Number(i.precio)||0))}</strong>
         <button class="btn btn-danger btn-sm" type="button" tabindex="-1" onclick="removeValeManualItem(${idx})" title="Eliminar material"><i class="fas fa-trash"></i></button>
@@ -5752,6 +5831,14 @@ async function saveValeManual() {
         `Folio ${folio} descargado como Excel. Ábrelo desde Descargas.`,
         'success'
       );
+
+      // Solo en Vale Manual: después de guardar, vuelve a mostrar la ventana
+      // de acciones para permitir seleccionar "Abrir archivo".
+      const nextAction = await askFolioAction();
+      if (nextAction === 'open') {
+        await openFolioXlsm(printable);
+        showToast(`Folio ${folio} preparado para abrir.`, 'success');
+      }
     }
   } catch (e) {
     if (e?.name === 'AbortError') return;
@@ -5976,7 +6063,7 @@ async function performFullReset() {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (peer) { try { peer.destroy(); } catch (e) {} }
 
-  const freshUsers = DEFAULT_USERS.map(u => ({...u, updatedAt: Date.now()}));
+  const freshUsers = DEFAULT_USERS.map(u => ({...u}));
   const defaultRoom = '';
 
   await idbClearAndPutAll('products', []);
