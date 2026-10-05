@@ -1967,9 +1967,9 @@ function reconnectCloud() {
   firebaseConnectRoom();
 }
 
-async function broadcastFullSync(fromFirebaseListener = false) {
+async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved = false) {
   sanitizeStoredData();
-  await saveLocalData();
+  if (!localAlreadySaved) await saveLocalData();
 
   // Sin una clave de sala, la operación es 100% local. No se inicializa
   // Firebase ni se consulta ninguna sala anterior.
@@ -2455,17 +2455,11 @@ async function init() {
   deletedMovimientos = await idbGetMeta('deletedMovimientos', []);
   deletedUsers = await idbGetMeta('deletedUsers', []);
 
-  // Solo se aplica la reparación automática cuando el usuario NO ha fijado
-  // manualmente el consecutivo. Así se conserva una elección como F-016.
-  if (!folioManualOverride) {
-    const repairedNext = getHighestActiveFolioNumber() + 1;
-    if (getFolioNumber(currentFolio) < repairedNext) {
-      currentFolio = buildFolioFromNumber(repairedNext, currentFolio);
-      currentFolioUpdatedAt = Date.now();
-      await idbSetMeta('folio', currentFolio);
-      localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
-    }
-  }
+  // El folio guardado es la fuente de verdad.
+  // NO se recalcula al iniciar sesión a partir del folio histórico más alto.
+  // Esto evita que un folio válido como F-040 vuelva a F-431 al cambiar de usuario.
+  // El historial se utiliza únicamente para validar nuevos registros/duplicados.
+  currentFolio = fixTextForExcel(currentFolio || 'F-001').trim() || 'F-001';
 
   sanitizeStoredData();
   // Saneamiento defensivo: si por alguna razón quedó guardado un registro
@@ -3882,15 +3876,25 @@ async function saveVenta() {
   if (isEditing) logVentaModificada(old, v);
 
   clearVenta();
-  await broadcastFullSync();
   if (!isEditing && wasManualFolioOverride) {
     folioManualOverrideActive = false;
     await idbSetMeta('folio_manual_override', false);
   }
+
+  // Guardar primero la copia local. La ventana de impresión no debe esperar
+  // a que termine la lectura/escritura de Firebase.
+  await saveLocalData();
+
   renderDashboard();
   renderHistorialVentas();
   showToast(isEditing ? 'Registro modificado' : 'Compra registrada y sincronizada');
   viewVenta(v.id);
+
+  // Firebase continúa en segundo plano para que la opción de imprimir aparezca
+  // inmediatamente. Si tarda o falla, la copia local ya quedó guardada.
+  broadcastFullSync(false, true).catch(e => {
+    console.error('Sincronización en segundo plano de la compra:', e);
+  });
 }
 
 function resumirItemsVenta(items) {
@@ -5802,11 +5806,16 @@ async function saveValeManual() {
   if (folioVal) folioVal.textContent = currentFolio;
 
   window._valeDraftItems = [];
-  await broadcastFullSync();
   if (!isEditing && wasManualFolioOverride) {
     folioManualOverrideActive = false;
     await idbSetMeta('folio_manual_override', false);
   }
+
+  // La copia local queda guardada antes de mostrar las acciones de impresión.
+  // La sincronización con Firebase se realiza en segundo plano para no hacer
+  // esperar al usuario después de finalizar el vale.
+  await saveLocalData();
+
   clearValeManual();
   renderHistorialVentas();
   showToast(isEditing ? `Vale manual ${folio} modificado correctamente` : `Vale manual ${folio} guardado. Siguiente folio: ${currentFolio}`);
@@ -5815,6 +5824,12 @@ async function saveValeManual() {
   // quiere abrir o guardar el Excel del folio recién creado.
   currentViewingValeManual = vale;
   currentViewingVenta = normalizeValeForF361(vale);
+
+  // No bloqueamos la ventana de impresión mientras Firebase sincroniza.
+  broadcastFullSync(false, true).catch(e => {
+    console.error('Sincronización en segundo plano del Vale Manual:', e);
+  });
+
   try {
     const action = await askFolioAction();
     if (action === 'cancel') return;
