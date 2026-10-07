@@ -595,7 +595,8 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
   </div>
   <nav>
     <a class="active" onclick="showSection('dashboard')" id="nav-dashboard"><i class="fas fa-chart-pie"></i><span>Dashboard</span></a>
-    <a onclick="showSection('inventario')" id="nav-inventario"><i class="fas fa-box-open"></i><span>Inventario</span></a>
+    <a onclick="showSection('inventario')" id="nav-inventario"><i class="fas fa-box-open"></i><span>Inventario Compras</span></a>
+    <a onclick="showSection('vale-inventario')" id="nav-vale-inventario"><i class="fas fa-hand-holding-heart"></i><span>Inventario Vale / Donación</span></a>
     <a onclick="showSection('inv-fisico')" id="nav-inv-fisico" class="admin-only"><i class="fas fa-clipboard-check"></i><span>Inv. Físico</span></a>
     <a onclick="showSection('ventas')" id="nav-ventas"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
     <a onclick="showSection('historial-ventas')" id="nav-historial-ventas"><i class="fas fa-history"></i><span>Historial Compras</span></a>
@@ -702,6 +703,46 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
       <div class="pagination" id="inv-pagination"></div>
     </div>
 
+    <!-- INVENTARIO EXCLUSIVO PARA VALE MANUAL / DONACIÓN -->
+    <div id="section-vale-inventario" class="section" style="display:none;">
+      <div class="vale-manual-card">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; margin-bottom:18px;">
+          <div>
+            <h3 style="color:#166534; margin-bottom:5px;"><i class="fas fa-hand-holding-heart"></i> Inventario para Vale Manual / Donación</h3>
+            <div style="color:#64748b; font-size:.82rem; font-weight:600;">Catálogo independiente. No modifica ni descuenta el Inventario Compras.</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-primary" type="button" onclick="openValeInventoryMaterialForm()"><i class="fas fa-plus"></i> Agregar material</button>
+            <input type="file" id="vale-inventory-excel-input" accept=".xlsx" style="display:none" onchange="importValeInventoryExcel(this)">
+            <button class="btn btn-outline" type="button" onclick="document.getElementById('vale-inventory-excel-input').click()"><i class="fas fa-file-excel"></i> Cargar Excel</button>
+            <button class="btn btn-outline" type="button" onclick="exportValeInventoryJSON()"><i class="fas fa-file-export"></i> Exportar JSON</button>
+            <input type="file" id="vale-inventory-json-input" accept=".json,application/json" style="display:none" onchange="importValeInventoryJSON(this)">
+            <button class="btn btn-outline" type="button" onclick="document.getElementById('vale-inventory-json-input').click()"><i class="fas fa-file-import"></i> Importar JSON</button>
+          </div>
+        </div>
+        <div id="vale-inventory-form" style="display:none; padding:16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; margin-bottom:18px;">
+          <div class="form-grid">
+            <div class="form-group"><label>Clave</label><input id="vi-clave" placeholder="Ej. DON-001"></div>
+            <div class="form-group"><label>Descripción / Material</label><input id="vi-descripcion" placeholder="Nombre del material"></div>
+            <div class="form-group"><label>Unidad</label><input id="vi-unidad" value="PIEZA"></div>
+            <div class="form-group"><label>Precio unitario</label><input id="vi-precio" type="number" min="0" step="0.01" value="0"></div>
+            <div class="form-group"><label>Existencia</label><input id="vi-existencia" type="number" min="0" step="1" value="0"></div>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-outline" type="button" onclick="closeValeInventoryMaterialForm()">Cancelar</button>
+            <button class="btn btn-primary" type="button" onclick="saveValeInventoryMaterial()"><i class="fas fa-save"></i> Guardar material</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="search-box"><i class="fas fa-search"></i><input id="vi-search" placeholder="Buscar por clave o descripción..." oninput="renderValeInventario()"></div>
+          <select id="vi-sort" onchange="renderValeInventario()">
+            <option value="nombre-az">Descripción A-Z</option><option value="nombre-za">Descripción Z-A</option><option value="clave-az">Clave A-Z</option><option value="existencia-desc">Existencia mayor a menor</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Unidad</th><th>Precio</th><th>Existencia</th><th>Acciones</th></tr></thead><tbody id="vale-inventory-tbody"></tbody></table></div>
+      </div>
+    </div>
+
     <!-- INVENTARIO FÍSICO -->
     <div id="section-inv-fisico" class="section" style="display:none;">
       <div class="toolbar">
@@ -756,7 +797,7 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
     <!-- VALE MANUAL -->
     <div id="section-vale-manual" class="section" style="display:none;">
       <div class="vale-manual-card">
-        <div class="vale-manual-note"><i class="fas fa-circle-info"></i> En Vale manual los materiales se capturan a mano y no descuentan existencia del inventario. Los datos quedan guardados junto con el folio.</div>
+        <div class="vale-manual-note"><i class="fas fa-circle-info"></i> En Vale Manual los materiales salen del Inventario Vale / Donación. Al guardar se descuenta la existencia; al modificar o eliminar el vale se ajusta nuevamente. El Inventario Compras no se modifica.</div>
         <div class="vale-form-grid">
           <div class="form-group"><label>Folio</label><input type="text" id="vale-folio-input"></div>
           <div class="form-group"><label>Fecha</label><input type="date" id="vale-fecha"></div>
@@ -779,8 +820,12 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap;">
-          <strong style="color:#166534;"><i class="fas fa-boxes-stacked"></i> Materiales capturados manualmente</strong>
+          <strong style="color:#166534;"><i class="fas fa-boxes-stacked"></i> Materiales del Vale Manual</strong>
           <button class="btn btn-outline" type="button" onclick="addValeManualItem()"><i class="fas fa-plus"></i> Agregar material</button>
+        </div>
+        <div class="ac-container" style="display:flex; gap:8px; margin-bottom:12px;">
+          <div class="ac-results" id="vale-inventory-ac-list" style="display:none; bottom:auto; top:calc(100% + 10px); box-shadow:0 15px 40px rgba(5,150,105,.18);"></div>
+          <div class="search-box"><i class="fas fa-search"></i><input type="text" id="vale-search-inventory" placeholder="Buscar en Inventario Vale / Donación..." oninput="searchValeInventory()" autocomplete="off"></div>
         </div>
         <div id="vale-items-list" class="vale-items-panel"></div>
 
@@ -1110,6 +1155,31 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
     <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:30px;">
       <button class="btn btn-outline" onclick="closeModal('modal-entrada-producto')">Cancelar</button>
       <button class="btn btn-entry" onclick="saveProductEntry()"><i class="fas fa-arrow-down"></i> Registrar Entrada</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENTRADA INVENTARIO VALE / DONACION -->
+<div class="modal-overlay" id="modal-entrada-vale-inventario">
+  <div class="modal">
+    <div class="modal-header"><h3><i class="fas fa-hand-holding-heart" style="color:#0284c7; margin-right:8px;"></i>Dar Entrada de Material — Vale / Donación</h3><button class="close-btn" onclick="closeModal('modal-entrada-vale-inventario')">&times;</button></div>
+    <input type="hidden" id="vale-entrada-inv-id">
+    <div class="entry-summary">
+      <div class="entry-summary-card"><span>Clave</span><strong id="vale-entrada-inv-clave">—</strong></div>
+      <div class="entry-summary-card"><span>Existencia actual</span><strong id="vale-entrada-inv-actual">0</strong></div>
+      <div class="entry-summary-card"><span>Existencia resultante</span><strong id="vale-entrada-inv-resultante">0</strong></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group full"><label>Material</label><input type="text" id="vale-entrada-inv-descripcion" readonly></div>
+      <div class="form-group"><label>Cantidad que entra</label><input type="number" id="vale-entrada-inv-cantidad" min="1" step="1" oninput="updateValeInventoryEntryPreview()" placeholder="Ej. 50"></div>
+      <div class="form-group"><label>Referencia</label><input type="text" id="vale-entrada-inv-referencia" placeholder="Opcional"></div>
+      <div class="form-group"><label>Fecha</label><input type="date" id="vale-entrada-inv-fecha"></div>
+      <div class="form-group"><label>Precio Unitario</label><input type="number" id="vale-entrada-inv-precio" min="0" step="0.01"></div>
+      <div class="form-group full"><label>Nota / Concepto</label><textarea id="vale-entrada-inv-nota" rows="2" placeholder="Entrada de material / donación"></textarea></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:30px;">
+      <button class="btn btn-outline" onclick="closeModal('modal-entrada-vale-inventario')">Cancelar</button>
+      <button class="btn btn-entry" onclick="saveValeInventoryEntry()"><i class="fas fa-arrow-down"></i> Registrar Entrada</button>
     </div>
   </div>
 </div>
@@ -1531,7 +1601,7 @@ let heartbeatTimer = null;
 // =============================================================
 // ESTADO PRINCIPAL Y USUARIOS
 // =============================================================
-let products = [], ventas = [], movimientos = [], valesManuales = [], currentFolio = 'F-001', currentUser = null;
+let products = [], ventas = [], movimientos = [], valesManuales = [], valesInventario = [], currentFolio = 'F-001', currentUser = null;
 let folioManualOverrideActive = false;
 
 // Usuarios base: el inicio de sesión no depende de IndexedDB ni de la red.
@@ -1685,6 +1755,7 @@ function buildFirebasePayload() {
       ventas,
       movimientos,
       valesManuales,
+      valesInventario,
       currentFolio,
       currentFolioUpdatedAt,
       folioSequence: Math.max(0, folioNumber - 1),
@@ -1794,6 +1865,9 @@ function mergeFirebaseState(remote) {
   }
   if (Array.isArray(d.valesManuales)) {
     valesManuales = applyTombstones(mergeCollections(valesManuales, d.valesManuales), deletedValesManuales);
+  }
+  if (Array.isArray(d.valesInventario)) {
+    valesInventario = mergeCollections(valesInventario, d.valesInventario);
   }
   if (Array.isArray(d.users)) {
     users = applyTombstones(mergeUsers(users, d.users), deletedUsers);
@@ -2022,6 +2096,7 @@ async function saveLocalData() {
   await idbClearAndPutAll('movimientos', movimientos);
   await idbClearAndPutAll('users', users);
   await idbSetMeta('valesManuales', valesManuales);
+  await idbSetMeta('valesInventario', valesInventario);
   await idbSetMeta('folio', currentFolio);
   await idbSetMeta('cloud_room', cloudRoomId);
   await idbSetMeta('deletedProducts', deletedProducts);
@@ -2294,6 +2369,14 @@ function sanitizeStoredData() {
       unidad: cleanCorruptedString(i.unidad)
     }))
   }));
+  valesInventario = (Array.isArray(valesInventario) ? valesInventario : []).map(i => ({
+    ...i,
+    clave: cleanCorruptedString(i.clave),
+    descripcion: cleanCorruptedString(i.descripcion),
+    unidad: cleanCorruptedString(i.unidad || 'PIEZA'),
+    precio: Number(i.precio) || 0,
+    existencia: Number(i.existencia) || 0
+  }));
   valesManuales = (Array.isArray(valesManuales) ? valesManuales : []).map(v => ({
     ...v,
     folio: cleanCorruptedString(v.folio),
@@ -2407,6 +2490,7 @@ async function init() {
   const idbMovs = await idbGetAll('movimientos');
   const idbUsers = await idbGetAll('users');
   const savedValesManuales = await idbGetMeta('valesManuales', []);
+  const savedValesInventario = await idbGetMeta('valesInventario', []);
 
   // El producto de muestra (INITIAL_DATA) solo debe cargarse en la
   // instalacion original, jamas. La bandera 'db_seeded' distingue
@@ -2428,6 +2512,7 @@ async function init() {
   ventas = idbVentas;
   movimientos = idbMovs;
   valesManuales = Array.isArray(savedValesManuales) ? savedValesManuales : [];
+  valesInventario = Array.isArray(savedValesInventario) ? savedValesInventario : [];
 
   if (idbUsers.length > 0) {
     users = idbUsers;
@@ -2496,6 +2581,9 @@ async function init() {
   });
 
   document.addEventListener('click', function(e) {
+    const valeContainer = document.querySelector('#section-vale-manual .ac-container');
+    const valeList = document.getElementById('vale-inventory-ac-list');
+    if (valeContainer && valeList && !valeContainer.contains(e.target)) valeList.style.display = 'none';
     const container = document.querySelector('#section-ventas .ac-container');
     const list = document.getElementById('venta-ac-list');
     if (container && list && !container.contains(e.target)) list.style.display = 'none';
@@ -2514,6 +2602,7 @@ function refreshCurrentView() {
   renderInventario();
   renderHistorialVentas();
   if (document.getElementById('section-vale-manual')?.style.display === 'block') renderValeManualItems();
+  if (document.getElementById('section-vale-inventario')?.style.display === 'block') renderValeInventario();
   renderMovimientos();
   renderKardex();
   renderUsersTable();
@@ -3126,6 +3215,7 @@ function showSection(name) {
   document.getElementById('page-title').innerHTML = `<i class="${titleIcon}"></i> ${titleText}`;
   if (name === 'dashboard') renderDashboard();
   if (name === 'inventario') { invPage = 1; renderInventario(); }
+  if (name === 'vale-inventario') renderValeInventario();
   if (name === 'inv-fisico') renderInvFisico();
   if (name === 'historial-ventas') renderHistorialVentas();
   if (name === 'ventas-material') { populateVentasMaterialSelect(); renderVentasMaterial(); }
@@ -4650,6 +4740,9 @@ function f361ModifySheetXml(xml,v){
   f361SetTextCell(doc,`I${ivaRow}`,'I.V.A');
   f361SetTextCell(doc,`I${totalRow}`,'TOTAL');
 
+const zeroRow = 23 + extraRows;
+f361BlankCell(doc, `J${zeroRow}`);
+
   return new XMLSerializer().serializeToString(doc);
 }
 
@@ -5496,7 +5589,7 @@ function formatUnitByQuantity(cantidad, unidad='PIEZA') {
 }
 
 function createBlankValeManualItem() {
-  return { id: Date.now() + Math.random(), clave: '', descripcion: '', unidad: 'PIEZA', cantidad: 1, precio: 0 };
+  return { id: Date.now() + Math.random(), inventarioId: null, afectaInventario: false, clave: '', descripcion: '', unidad: 'PIEZA', cantidad: 1, precio: 0 };
 }
 
 function addValeManualItem(focusNewRow = false) {
@@ -5532,6 +5625,403 @@ function handleValeItemTab(event, idx) {
   // la siguiente fila y lleva el foco a "Clave".
   event.preventDefault();
   addValeManualItem(true);
+}
+
+// =============================================================
+// INVENTARIO EXCLUSIVO PARA VALE MANUAL / DONACION
+// =============================================================
+function canManageValeInventory() {
+  return !!(currentUser && currentUser.role === 'admin') || document.body.classList.contains('is-admin');
+}
+
+let editingValeInventoryId = null;
+
+function normalizeValeInventoryItem(raw = {}) {
+  return {
+    id: raw.id ?? (Date.now() + Math.random()),
+    clave: fixTextForExcel(raw.clave || '').trim(),
+    descripcion: fixTextForExcel(raw.descripcion || '').trim(),
+    unidad: fixTextForExcel(raw.unidad || 'PIEZA').trim().toUpperCase() || 'PIEZA',
+    precio: Math.max(0, Number(raw.precio) || 0),
+    existencia: Math.max(0, Number(raw.existencia) || 0),
+    updatedAt: Number(raw.updatedAt) || Date.now()
+  };
+}
+
+function openValeInventoryMaterialForm(itemId = null) {
+  if (itemId != null && !canManageValeInventory()) {
+    showToast('Solo el administrador puede gestionar materiales del Inventario Vale / Donación', 'error');
+    return;
+  }
+  editingValeInventoryId = itemId;
+  const item = itemId == null ? null : valesInventario.find(x => String(x.id) === String(itemId));
+  document.getElementById('vale-inventory-form').style.display = '';
+  document.getElementById('vi-clave').value = item?.clave || '';
+  document.getElementById('vi-descripcion').value = item?.descripcion || '';
+  document.getElementById('vi-unidad').value = item?.unidad || 'PIEZA';
+  document.getElementById('vi-precio').value = Number(item?.precio || 0);
+  const stockInput = document.getElementById('vi-existencia');
+  stockInput.value = Number(item?.existencia || 0);
+  stockInput.readOnly = !!item;
+  stockInput.title = item ? 'Para aumentar existencias use Dar entrada. Las salidas se generan al guardar un Vale Manual.' : 'Existencia inicial del material';
+  const oldNote = document.getElementById('vi-stock-note');
+  if (oldNote) oldNote.remove();
+  if (item) {
+    const note = document.createElement('div');
+    note.id = 'vi-stock-note';
+    note.className = 'stock-readonly-note';
+    note.innerHTML = '<i class="fas fa-circle-info"></i> La existencia no se modifica desde Gestionar. Use <strong>Dar entrada</strong> o un <strong>Vale Manual</strong>.';
+    stockInput.parentElement.appendChild(note);
+  }
+  document.getElementById('vi-descripcion').focus();
+}
+
+function closeValeInventoryMaterialForm() {
+  editingValeInventoryId = null;
+  const form = document.getElementById('vale-inventory-form');
+  if (form) form.style.display = 'none';
+}
+
+async function saveValeInventoryMaterial() {
+  const existingItem = editingValeInventoryId == null ? null : valesInventario.find(x => String(x.id) === String(editingValeInventoryId));
+  const item = normalizeValeInventoryItem({
+    id: editingValeInventoryId ?? (Date.now() + Math.random()),
+    clave: document.getElementById('vi-clave')?.value,
+    descripcion: document.getElementById('vi-descripcion')?.value,
+    unidad: document.getElementById('vi-unidad')?.value,
+    precio: document.getElementById('vi-precio')?.value,
+    existencia: existingItem ? existingItem.existencia : document.getElementById('vi-existencia')?.value
+  });
+  if (!item.descripcion) { showToast('Ingrese la descripción del material', 'error'); return; }
+  const duplicate = valesInventario.find(x => normalizeSearchText(x.clave) === normalizeSearchText(item.clave) && item.clave && String(x.id) !== String(item.id));
+  if (duplicate) { showToast(`La clave ${item.clave} ya existe en el inventario de Vale/Donación`, 'error'); return; }
+  if (editingValeInventoryId == null) valesInventario.unshift(item);
+  else {
+    const idx = valesInventario.findIndex(x => String(x.id) === String(editingValeInventoryId));
+    if (idx >= 0) valesInventario[idx] = item;
+    else valesInventario.unshift(item);
+  }
+  await idbSetMeta('valesInventario', valesInventario);
+  closeValeInventoryMaterialForm();
+  await broadcastFullSync(false, true);
+  renderValeInventario();
+  showToast('Material guardado en Inventario Vale / Donación');
+}
+
+function renderValeInventario() {
+  const tbody = document.getElementById('vale-inventory-tbody');
+  if (!tbody) return;
+  const q = normalizeSearchText(document.getElementById('vi-search')?.value || '');
+  const sort = document.getElementById('vi-sort')?.value || 'nombre-az';
+  let rows = (Array.isArray(valesInventario) ? valesInventario : []).filter(i => !q || normalizeSearchText(i.clave).includes(q) || normalizeSearchText(i.descripcion).includes(q));
+  rows.sort((a,b) => {
+    if (sort === 'nombre-za') return String(b.descripcion).localeCompare(String(a.descripcion), 'es', {numeric:true, sensitivity:'base'});
+    if (sort === 'clave-az') return String(a.clave).localeCompare(String(b.clave), 'es', {numeric:true, sensitivity:'base'});
+    if (sort === 'existencia-desc') return (Number(b.existencia)||0) - (Number(a.existencia)||0);
+    return String(a.descripcion).localeCompare(String(b.descripcion), 'es', {numeric:true, sensitivity:'base'});
+  });
+  tbody.innerHTML = rows.length ? rows.map(i => `<tr>
+    <td><span class="clave-cell">${esc(i.clave || '—')}</span></td>
+    <td>${esc(i.descripcion)}</td><td>${esc(i.unidad || 'PIEZA')}</td>
+    <td>$${fmt(i.precio)}</td><td>${Number(i.existencia)||0}</td>
+    <td class="admin-only">
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-entry btn-sm" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
+        <button type="button" class="btn btn-outline btn-sm" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Gestionar</button>
+      </div>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; padding:28px; color:#94a3b8; font-weight:700;">No hay materiales en este inventario.</td></tr>';
+}
+
+document.addEventListener('click', function(e) {
+  const entryBtn = e.target.closest('[data-vale-entry-id]');
+  if (entryBtn) { e.preventDefault(); openValeInventoryEntryModal(entryBtn.getAttribute('data-vale-entry-id')); return; }
+  const manageBtn = e.target.closest('[data-vale-manage-id]');
+  if (manageBtn) { e.preventDefault(); openValeInventoryMaterialForm(manageBtn.getAttribute('data-vale-manage-id')); }
+});
+
+function openValeInventoryEntryModal(id) {
+  if (!canManageValeInventory()) {
+    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    return;
+  }
+  const item = valesInventario.find(x => String(x.id) === String(id));
+  if (!item) { showToast('Material no encontrado', 'error'); return; }
+
+  document.getElementById('vale-entrada-inv-id').value = item.id;
+  document.getElementById('vale-entrada-inv-clave').textContent = item.clave || 'N/A';
+  document.getElementById('vale-entrada-inv-descripcion').value = item.descripcion || '';
+  document.getElementById('vale-entrada-inv-actual').textContent = Number(item.existencia) || 0;
+  document.getElementById('vale-entrada-inv-resultante').textContent = Number(item.existencia) || 0;
+  document.getElementById('vale-entrada-inv-cantidad').value = '';
+  document.getElementById('vale-entrada-inv-referencia').value = '';
+  document.getElementById('vale-entrada-inv-fecha').value = todayISO();
+  document.getElementById('vale-entrada-inv-precio').value = Number(item.precio) || 0;
+  document.getElementById('vale-entrada-inv-nota').value = 'Entrada de material / donación';
+  openModal('modal-entrada-vale-inventario');
+  setTimeout(() => document.getElementById('vale-entrada-inv-cantidad')?.focus(), 50);
+}
+
+function updateValeInventoryEntryPreview() {
+  const id = document.getElementById('vale-entrada-inv-id')?.value;
+  const item = valesInventario.find(x => String(x.id) === String(id));
+  if (!item) return;
+  const actual = Number(item.existencia) || 0;
+  const entrada = Number(document.getElementById('vale-entrada-inv-cantidad')?.value) || 0;
+  document.getElementById('vale-entrada-inv-actual').textContent = actual;
+  document.getElementById('vale-entrada-inv-resultante').textContent = actual + Math.max(entrada, 0);
+}
+
+async function saveValeInventoryEntry() {
+  if (!canManageValeInventory()) {
+    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    return;
+  }
+  const id = document.getElementById('vale-entrada-inv-id')?.value;
+  const item = valesInventario.find(x => String(x.id) === String(id));
+  if (!item) { showToast('Material no encontrado', 'error'); return; }
+
+  const qty = Number(document.getElementById('vale-entrada-inv-cantidad')?.value);
+  const referencia = fixTextForExcel(document.getElementById('vale-entrada-inv-referencia')?.value || '');
+  const fecha = document.getElementById('vale-entrada-inv-fecha')?.value || todayISO();
+  const priceRaw = document.getElementById('vale-entrada-inv-precio')?.value;
+  const precio = priceRaw === '' ? Number(item.precio) || 0 : Number(priceRaw);
+  const nota = fixTextForExcel(document.getElementById('vale-entrada-inv-nota')?.value || '') || 'Entrada de material / donación';
+
+  if (!Number.isFinite(qty) || qty <= 0) {
+    showToast('Ingrese una cantidad de entrada mayor que cero', 'error');
+    return;
+  }
+  if (!Number.isFinite(precio) || precio < 0) {
+    showToast('El precio debe ser un numero valido y no negativo', 'error');
+    return;
+  }
+
+  item.existencia = (Number(item.existencia) || 0) + qty;
+  item.precio = precio;
+  item.updatedAt = Date.now();
+  item.ultima_entrada = { cantidad: qty, referencia, fecha, nota, usuario: currentUser?.username || currentUser?.name || '' };
+
+  await idbSetMeta('valesInventario', valesInventario);
+  closeModal('modal-entrada-vale-inventario');
+  await broadcastFullSync(false, true);
+  renderValeInventario();
+  showToast(`Entrada registrada: +${qty} ${item.unidad || 'unidad(es)'}`);
+}
+
+async function deleteValeInventoryMaterial(id) {
+  const item = valesInventario.find(x => String(x.id) === String(id));
+  if (!item) { showToast('Material no encontrado', 'error'); return; }
+  const linkedVale = (Array.isArray(valesManuales) ? valesManuales : []).find(v => v.inventarioAfectado === true && (v.items || []).some(i => String(i.inventarioId) === String(id) || (item.clave && normalizeSearchText(i.clave || '') === normalizeSearchText(item.clave))));
+  if (linkedVale) {
+    showToast(`No puede eliminarse "${item.descripcion}" porque está ligado al Vale Manual ${linkedVale.folio}. Elimine o modifique primero el vale.`, 'error');
+    return;
+  }
+  if (!confirm(`¿Eliminar "${item.descripcion}" del Inventario Vale / Donación?`)) return;
+  valesInventario = valesInventario.filter(x => String(x.id) !== String(id));
+  await idbSetMeta('valesInventario', valesInventario);
+  await broadcastFullSync(false, true);
+  renderValeInventario();
+  showToast('Material eliminado del inventario de Vale / Donación', 'warning');
+}
+
+function searchValeInventory() {
+  const input = document.getElementById('vale-search-inventory');
+  const list = document.getElementById('vale-inventory-ac-list');
+  const q = normalizeSearchText(input?.value || '');
+  if (!list) return;
+  if (q.length < 2) { list.style.display = 'none'; list.innerHTML = ''; return; }
+  const results = (Array.isArray(valesInventario) ? valesInventario : []).filter(i => normalizeSearchText(i.clave).includes(q) || normalizeSearchText(i.descripcion).includes(q)).slice(0, 20);
+  if (!results.length) {
+    list.innerHTML = '<div class="ac-item" style="cursor:default; color:#64748b;">Sin resultados en Inventario Vale / Donación.</div>';
+  } else {
+    list.innerHTML = results.map(i => {
+      const stock = Math.max(0, Number(i.existencia) || 0);
+      if (stock <= 0) {
+        return `<div class="ac-item" style="cursor:not-allowed; opacity:.62;" title="Material agotado">
+          <strong>${esc(i.descripcion)}</strong><br><small>${esc(i.clave || 'SIN CLAVE')} | ${esc(i.unidad || 'PIEZA')} | $${fmt(i.precio)} | <strong style="color:#dc2626;">AGOTADO (0)</strong></small>
+        </div>`;
+      }
+      return `<div class="ac-item" data-vale-inventory-select-id="${esc(i.id)}" role="button" tabindex="0">
+        <strong>${esc(i.descripcion)}</strong><br><small>${esc(i.clave || 'SIN CLAVE')} | ${esc(i.unidad || 'PIEZA')} | $${fmt(i.precio)} | Existencia: ${stock}</small>
+      </div>`;
+    }).join('');
+  }
+  list.style.display = 'block';
+}
+
+// Seleccion del material del Inventario Vale/Donacion mediante delegacion de eventos.
+// Esto evita depender de onclick inline y asegura que el clic llegue a la funcion aunque
+// el contenido de la lista se haya regenerado por una nueva busqueda.
+document.addEventListener('click', function(e) {
+  const option = e.target.closest('[data-vale-inventory-select-id]');
+  if (!option) return;
+  const list = document.getElementById('vale-inventory-ac-list');
+  if (!list || !list.contains(option)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const id = option.getAttribute('data-vale-inventory-select-id');
+  addValeInventoryItemToDraft(id);
+});
+
+document.addEventListener('keydown', function(e) {
+  const option = e.target.closest('[data-vale-inventory-select-id]');
+  if (!option || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  addValeInventoryItemToDraft(option.getAttribute('data-vale-inventory-select-id'));
+});
+
+function addValeInventoryItemToDraft(id) {
+  const item = valesInventario.find(x => String(x.id) === String(id));
+  if (!item) {
+    showToast('El material ya no existe en Inventario Vale / Donación.', 'error');
+    return false;
+  }
+
+  const stock = Math.max(0, Number(item.existencia) || 0);
+  if (stock <= 0) {
+    showToast(`El material "${item.descripcion || item.clave || 'sin descripción'}" está agotado. No se puede agregar al Vale Manual.`, 'error');
+    searchValeInventory();
+    return false;
+  }
+
+  const items = getValeDraftItems();
+  const blankIdx = items.findIndex(i => !String(i.descripcion || '').trim());
+  const target = blankIdx >= 0 ? items[blankIdx] : createBlankValeManualItem();
+  if (blankIdx < 0) items.push(target);
+  target.inventarioId = item.id;
+  target.afectaInventario = true;
+  target.clave = item.clave || '';
+  target.descripcion = item.descripcion || '';
+  target.unidad = item.unidad || 'PIEZA';
+  target.precio = Number(item.precio) || 0;
+  target.cantidad = Number(target.cantidad) > 0 ? Math.min(Number(target.cantidad), stock) : 1;
+  target.cantidad = Math.max(1, target.cantidad);
+  window._valeDraftItems = items;
+  document.getElementById('vale-search-inventory').value = '';
+  document.getElementById('vale-inventory-ac-list').style.display = 'none';
+  renderValeManualItems();
+}
+
+async function importValeInventoryExcel(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  if (typeof ExcelJS === 'undefined') {
+    showToast('La importación de Excel no está disponible porque la librería ExcelJS no está cargada.', 'error');
+    input.value = '';
+    return;
+  }
+
+  try {
+    showToast('Leyendo archivo Excel del Inventario Vale / Donación...', 'success');
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = await file.arrayBuffer();
+    await workbook.xlsx.load(arrayBuffer);
+
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) throw new Error('El archivo no contiene hojas legibles');
+
+    // Se buscan los encabezados por nombre para que el Excel no tenga que seguir
+    // una posición de columnas rígida. Ejemplo: Clave | Descripción | Unidad | Precio | Existencia.
+    const headerRow = worksheet.getRow(1);
+    const colMap = {};
+    headerRow.eachCell((cell, colNumber) => {
+      const txt = normalizeSearchText(cell.value);
+      if (txt.includes('clave') || txt.includes('codigo') || txt.includes('sku')) colMap.clave = colNumber;
+      else if (txt.includes('descrip') || txt.includes('nombre') || txt.includes('articulo') || txt.includes('material')) colMap.descripcion = colNumber;
+      else if (txt.includes('unidad') || txt.includes('medida')) colMap.unidad = colNumber;
+      else if (txt.includes('precio') || txt.includes('costo') || txt.includes('importe')) colMap.precio = colNumber;
+      else if (txt.includes('exist') || txt.includes('stock') || txt.includes('cantidad') || txt.includes('cant')) colMap.existencia = colNumber;
+    });
+
+    if (!colMap.descripcion && !colMap.clave) {
+      throw new Error('No se detectaron columnas de "Clave" o "Descripción" en la fila 1');
+    }
+
+    let added = 0, updated = 0, ignored = 0;
+    const now = Date.now();
+
+    for (let r = 2; r <= worksheet.rowCount; r++) {
+      const row = worksheet.getRow(r);
+      const clave = fixTextForExcel(colMap.clave ? row.getCell(colMap.clave).value : '');
+      const descripcion = fixTextForExcel(colMap.descripcion ? row.getCell(colMap.descripcion).value : '');
+      if (!clave && !descripcion) { ignored++; continue; }
+
+      const unidad = fixTextForExcel(colMap.unidad ? row.getCell(colMap.unidad).value : 'PIEZA').trim().toUpperCase() || 'PIEZA';
+      const precio = Math.max(0, Number(colMap.precio ? row.getCell(colMap.precio).value : 0) || 0);
+      const existencia = Math.max(0, Number(colMap.existencia ? row.getCell(colMap.existencia).value : 0) || 0);
+
+      const existingIndex = valesInventario.findIndex(i =>
+        (clave && String(i.clave || '').toLowerCase() === clave.toLowerCase()) ||
+        (descripcion && normalizeSearchText(i.descripcion) === normalizeSearchText(descripcion))
+      );
+
+      if (existingIndex >= 0) {
+        const current = valesInventario[existingIndex];
+        valesInventario[existingIndex] = {
+          ...current,
+          clave: clave || current.clave || '',
+          descripcion: descripcion || current.descripcion || '',
+          unidad,
+          precio,
+          existencia,
+          updatedAt: now + r
+        };
+        updated++;
+      } else {
+        valesInventario.push(normalizeValeInventoryItem({
+          id: `VI-${now}-${r}-${Math.random().toString(36).slice(2, 7)}`,
+          clave: clave || `DON-${String(valesInventario.length + 1).padStart(3, '0')}`,
+          descripcion: descripcion || 'Material sin nombre',
+          unidad,
+          precio,
+          existencia,
+          updatedAt: now + r
+        }));
+        added++;
+      }
+    }
+
+    await idbSetMeta('valesInventario', valesInventario);
+    await broadcastFullSync(false, true);
+    renderValeInventario();
+    input.value = '';
+    showToast(`Excel cargado: ${added} nuevos, ${updated} actualizados${ignored ? `, ${ignored} filas vacías` : ''}`);
+  } catch (err) {
+    showToast(`Error al cargar Excel: ${err.message}`, 'error');
+    input.value = '';
+  }
+}
+
+function exportValeInventoryJSON() {
+  const data = { system: 'VALE_MANUAL_DONACION_INVENTARIO', version: 1, timestamp: new Date().toISOString(), valesInventario: Array.isArray(valesInventario) ? valesInventario : [] };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `inventario_vale_donacion_${todayISO()}.json`; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function importValeInventoryJSON(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.valesInventario)) throw new Error('Formato inválido');
+      const incoming = data.valesInventario.map(normalizeValeInventoryItem).filter(i => i.descripcion);
+      const map = new Map(valesInventario.map(i => [String(i.id), i]));
+      incoming.forEach(i => map.set(String(i.id), i));
+      valesInventario = Array.from(map.values());
+      await idbSetMeta('valesInventario', valesInventario);
+      await broadcastFullSync(false, true);
+      renderValeInventario();
+      showToast(`Inventario Vale/Donación importado: ${incoming.length} material(es)`);
+    } catch (err) { showToast('El JSON no corresponde al Inventario Vale / Donación', 'error'); }
+    input.value = '';
+  };
+  reader.readAsText(file);
 }
 
 function renderValeManualItems() {
@@ -5586,9 +6076,27 @@ function updateValeManualItem(idx, field, value) {
   const items = getValeDraftItems();
   const item = items[idx];
   if (!item) return;
-  if (field === 'cantidad') item[field] = Math.max(0.01, Number(value) || 0.01);
+  if (field === 'cantidad') {
+    let qty = Math.max(0.01, Number(value) || 0.01);
+    if (item.inventarioId != null) {
+      const inv = valesInventario.find(x => String(x.id) === String(item.inventarioId));
+      const stock = Math.max(0, Number(inv?.existencia) || 0);
+      if (!inv || stock <= 0) {
+        showToast('Este material ya no tiene existencia disponible.', 'error');
+        return;
+      }
+      if (qty > stock) {
+        qty = stock;
+        showToast(`La cantidad no puede superar la existencia disponible (${stock}).`, 'warning');
+      }
+    }
+    item[field] = qty;
+  }
   else if (field === 'precio') item[field] = Math.max(0, Number(value) || 0);
-  else item[field] = fixTextForExcel(value || '');
+  else {
+    item[field] = fixTextForExcel(value || '');
+    if (field === 'clave' || field === 'descripcion' || field === 'unidad') { item.inventarioId = null; item.afectaInventario = false; }
+  }
   window._valeDraftItems = items;
 
   // IMPORTANTE: no llamar a renderValeManualItems() aquí. Ese render
@@ -5644,6 +6152,25 @@ async function deleteValeManual(id) {
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === String(id));
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
   if (!confirm(`¿Eliminar el vale manual ${v.folio}?`)) return;
+
+  // Si el vale afectó inventario, devolver sus cantidades antes de eliminarlo.
+  if (v.inventarioAfectado === true) {
+    const restore = aggregateValeInventoryItems(v.items || []);
+    if (!restore.ok) {
+      showToast(`No se puede eliminar el vale porque falta en Inventario Vale / Donación el material "${restore.missing?.descripcion || restore.missing?.clave || 'sin descripción'}".`, 'error');
+      return;
+    }
+    for (const [invId, qty] of restore.quantities) {
+      const inv = valesInventario.find(x => String(x.id) === String(invId));
+      if (!inv) {
+        showToast('No se puede eliminar el vale porque uno de sus materiales ya no existe en Inventario Vale / Donación.', 'error');
+        return;
+      }
+      inv.existencia = (Number(inv.existencia) || 0) + qty;
+      inv.updatedAt = Date.now();
+      inv.ultima_entrada = { cantidad: qty, fecha: todayISO(), motivo: `Devolución por eliminación del Vale Manual ${v.folio}` };
+    }
+  }
 
   // El borrado debe quedar guardado localmente ANTES de sincronizar.
   // De lo contrario, otra lectura de Firebase puede volver a presentar
@@ -5705,6 +6232,65 @@ function clearValeManual() {
   renderValeManualItems();
 }
 
+function findValeInventoryItemForValeItem(item) {
+  if (!item) return null;
+  // Solo los renglones seleccionados explícitamente desde el Inventario Vale/Donación
+  // pueden afectar existencias. Los materiales capturados manualmente no deben
+  // relacionarse por coincidencia de clave o descripción.
+  const linked = item.afectaInventario === true || item.inventarioId != null;
+  if (!linked || item.inventarioId == null) return null;
+  return valesInventario.find(x => String(x.id) === String(item.inventarioId)) || null;
+}
+
+function aggregateValeInventoryItems(items) {
+  const result = new Map();
+  for (const item of (Array.isArray(items) ? items : [])) {
+    const linked = item && (item.afectaInventario === true || item.inventarioId != null);
+    // Material capturado manualmente: se conserva en el vale, pero no mueve stock.
+    if (!linked) continue;
+    const inv = findValeInventoryItemForValeItem(item);
+    if (!inv) return { ok: false, missing: item };
+    const key = String(inv.id);
+    const qty = Number(item.cantidad) || 0;
+    result.set(key, (result.get(key) || 0) + qty);
+  }
+  return { ok: true, quantities: result };
+}
+
+function prepareValeInventoryStockChange(oldItems, newItems, oldInventoryApplied) {
+  const oldAgg = oldInventoryApplied ? aggregateValeInventoryItems(oldItems) : { ok: true, quantities: new Map() };
+  const newAgg = aggregateValeInventoryItems(newItems);
+  if (!oldAgg.ok) return { ok: false, message: `No se encontró en Inventario Vale / Donación el material del vale anterior: ${oldAgg.missing?.descripcion || oldAgg.missing?.clave || 'sin descripción'}. No se modificó el vale.` };
+  if (!newAgg.ok) return { ok: false, message: `El material "${newAgg.missing?.descripcion || newAgg.missing?.clave || 'sin descripción'}" no existe en Inventario Vale / Donación. Agréguelo al inventario antes de emitir el vale.` };
+
+  const deltas = new Map();
+  for (const [id, qty] of oldAgg.quantities) deltas.set(id, (deltas.get(id) || 0) - qty);
+  for (const [id, qty] of newAgg.quantities) deltas.set(id, (deltas.get(id) || 0) + qty);
+
+  for (const [id, delta] of deltas) {
+    const inv = valesInventario.find(x => String(x.id) === String(id));
+    if (!inv) return { ok: false, message: 'Uno de los materiales del vale ya no existe en Inventario Vale / Donación.' };
+    const stock = Number(inv.existencia) || 0;
+    if (delta > 0 && stock < delta) {
+      return { ok: false, message: `Existencia insuficiente para "${inv.descripcion || inv.clave || 'material'}". Disponible: ${stock}. Necesario: ${delta}.` };
+    }
+  }
+  return { ok: true, deltas, quantities: newAgg.quantities };
+}
+
+function commitValeInventoryStockChange(plan) {
+  if (!plan?.ok) return false;
+  for (const [id, delta] of plan.deltas) {
+    const inv = valesInventario.find(x => String(x.id) === String(id));
+    if (!inv) return false;
+    inv.existencia = Math.max(0, (Number(inv.existencia) || 0) - delta);
+    inv.updatedAt = Date.now();
+    if (delta > 0) inv.ultima_salida = { cantidad: delta, fecha: todayISO(), motivo: 'Vale Manual' };
+    if (delta < 0) inv.ultima_entrada = { cantidad: Math.abs(delta), fecha: todayISO(), motivo: 'Ajuste por modificación de Vale Manual' };
+  }
+  return true;
+}
+
 async function saveValeManual() {
   const trabajador = fixTextForExcel(document.getElementById('vale-trabajador')?.value || '').trim();
   const departamento = fixTextForExcel(document.getElementById('vale-departamento')?.value || '').trim();
@@ -5716,7 +6302,9 @@ async function saveValeManual() {
     descripcion: fixTextForExcel(i.descripcion || '').trim(),
     unidad: fixTextForExcel(i.unidad || 'PIEZA').trim().toUpperCase() || 'PIEZA',
     cantidad: Number(i.cantidad) || 0,
-    precio: Number(i.precio) || 0
+    precio: Number(i.precio) || 0,
+    inventarioId: i.inventarioId ?? null,
+    afectaInventario: i.afectaInventario === true || i.inventarioId != null
   }));
 
   if (!trabajador) { showToast('Ingrese el nombre del trabajador', 'error'); return; }
@@ -5733,6 +6321,17 @@ async function saveValeManual() {
   const total = items.reduce((sum, i) => sum + i.cantidad * i.precio, 0);
   const wasManualFolioOverride = !!folioManualOverrideActive;
   const isEditing = editingValeManualId !== null && editingValeManualId !== undefined;
+  const oldValeForInventory = isEditing ? valesManuales.find(x => String(x.id) === String(editingValeManualId)) : null;
+  const oldValeItemsForInventory = oldValeForInventory?.items || [];
+  const oldInventoryApplied = oldValeForInventory?.inventarioAfectado === true;
+
+  // Primero se valida la salida contra Inventario Vale / Donación. Esto evita
+  // reservar un folio si no hay existencia suficiente.
+  const stockPlan = prepareValeInventoryStockChange(oldValeItemsForInventory, items, oldInventoryApplied);
+  if (!stockPlan.ok) {
+    showToast(stockPlan.message, 'error');
+    return;
+  }
 
   let vale;
   let folio;
@@ -5742,8 +6341,6 @@ async function saveValeManual() {
     folio = old.folio;
     vale = { ...old, folio, fecha, trabajador, departamento, cargo, tipo, items, total, updatedAt: now };
 
-    // Al editar también se respeta la regla mensual: el folio puede existir
-    // en otros meses, pero no puede coincidir con Venta/Vale del mismo mes.
     const duplicateVale = findDuplicateFolioInSameMonth(
       folio,
       fecha,
@@ -5757,13 +6354,7 @@ async function saveValeManual() {
       );
       return;
     }
-
-    const idx = valesManuales.findIndex(x => String(x.id) === String(editingValeManualId));
-    if (idx >= 0) valesManuales[idx] = vale;
-    editingValeManualId = null;
   } else {
-    // Si el usuario fijó manualmente el folio, este es el primer registro que
-    // consume ese folio. Después se continúa desde el siguiente número.
     const reservedValeFolio = wasManualFolioOverride
       ? fixTextForExcel(currentFolio)
       : await reserveNextSharedFolio(currentFolio);
@@ -5772,8 +6363,6 @@ async function saveValeManual() {
       currentFolio
     );
 
-    // Aunque el consecutivo automático ya viene de la secuencia compartida,
-    // se valida nuevamente contra Venta y Vale Manual del mismo mes.
     const duplicateVale = findDuplicateFolioInSameMonth(folio, fecha, 'vale', null);
     if (duplicateVale) {
       showToast(
@@ -5795,12 +6384,32 @@ async function saveValeManual() {
       total,
       updatedAt: now
     };
+  }
+
+  // Confirmadas todas las validaciones, ahora sí se aplica el movimiento de stock.
+  if (!commitValeInventoryStockChange(stockPlan)) {
+    showToast('No se pudo actualizar el Inventario Vale / Donación. El vale no fue guardado.', 'error');
+    return;
+  }
+
+  const afectaInventario = items.some(i => i.afectaInventario === true || i.inventarioId != null);
+  vale.inventarioAfectado = afectaInventario;
+  vale.inventarioMovimientoAt = afectaInventario ? Date.now() : null;
+
+  if (isEditing) {
+    const idx = valesManuales.findIndex(x => String(x.id) === String(editingValeManualId));
+    if (idx >= 0) valesManuales[idx] = vale;
+    else { showToast('Vale manual no encontrado', 'error'); return; }
+    editingValeManualId = null;
+  } else {
     valesManuales.unshift(vale);
     currentFolio = buildFolioFromNumber(getFolioNumber(folio) + 1, folio);
     currentFolioUpdatedAt = Date.now();
     await idbSetMeta('folio', currentFolio);
   }
+
   await idbSetMeta('valesManuales', valesManuales);
+  await idbSetMeta('valesInventario', valesInventario);
   localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
   const folioVal = document.getElementById('folio-val');
   if (folioVal) folioVal.textContent = currentFolio;
@@ -6086,6 +6695,7 @@ async function performFullReset() {
   await idbClearAndPutAll('movimientos', []);
   await idbClearAndPutAll('users', freshUsers);
   await idbSetMeta('valesManuales', []);
+  await idbSetMeta('valesInventario', []);
   await idbSetMeta('folio', 'F-001');
   await idbSetMeta('folio_manual_override', false);
   folioManualOverrideActive = false;
@@ -6627,7 +7237,7 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 function showToast(m, t='success') { const el = document.getElementById('toast'); el.textContent = m; el.className = 'show toast-'+t; setTimeout(()=>el.className='', 3000); }
 
 function exportBackup() {
-  const data = { products, ventas, valesManuales, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedValesManuales, deletedMovimientos, deletedUsers, system: 'COMPRA', timestamp: new Date().toISOString() };
+  const data = { products, ventas, valesManuales, valesInventario, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedValesManuales, deletedMovimientos, deletedUsers, system: 'COMPRA', timestamp: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup_compra_${todayISO()}.json`; link.click();
 }
@@ -6643,6 +7253,7 @@ function importBackup(input) {
       products = data.products;
       ventas = Array.isArray(data.ventas) ? data.ventas : [];
       valesManuales = Array.isArray(data.valesManuales) ? data.valesManuales : [];
+      valesInventario = Array.isArray(data.valesInventario) ? data.valesInventario : [];
       movimientos = Array.isArray(data.movimientos) ? data.movimientos : [];
       if (Array.isArray(data.users) && data.users.length) users = data.users;
       currentFolio = data.currentFolio || 'F-001';
@@ -6664,6 +7275,7 @@ function importBackup(input) {
       await idbClearAndPutAll('movimientos', movimientos);
       await idbClearAndPutAll('users', users);
       await idbSetMeta('valesManuales', valesManuales);
+      await idbSetMeta('valesInventario', valesInventario);
       await idbSetMeta('folio', currentFolio);
       await idbSetMeta('db_seeded', true);
       await idbSetMeta('catalog_reset_3_0_6', true);
