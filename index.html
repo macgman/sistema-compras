@@ -5662,15 +5662,15 @@ function openValeInventoryMaterialForm(itemId = null) {
   document.getElementById('vi-precio').value = Number(item?.precio || 0);
   const stockInput = document.getElementById('vi-existencia');
   stockInput.value = Number(item?.existencia || 0);
-  stockInput.readOnly = !!item;
-  stockInput.title = item ? 'Para aumentar existencias use Dar entrada. Las salidas se generan al guardar un Vale Manual.' : 'Existencia inicial del material';
+  stockInput.readOnly = false;
+  stockInput.title = item ? 'Puede modificar directamente la existencia. Las salidas también se generan al guardar un Vale Manual.' : 'Existencia inicial del material';
   const oldNote = document.getElementById('vi-stock-note');
   if (oldNote) oldNote.remove();
   if (item) {
     const note = document.createElement('div');
     note.id = 'vi-stock-note';
     note.className = 'stock-readonly-note';
-    note.innerHTML = '<i class="fas fa-circle-info"></i> La existencia no se modifica desde Gestionar. Use <strong>Dar entrada</strong> o un <strong>Vale Manual</strong>.';
+    note.innerHTML = '<i class="fas fa-circle-info"></i> Puede modificar la <strong>Existencia</strong> directamente aquí. Para aumentar mediante un movimiento use <strong>Dar entrada</strong>.';
     stockInput.parentElement.appendChild(note);
   }
   document.getElementById('vi-descripcion').focus();
@@ -5690,7 +5690,7 @@ async function saveValeInventoryMaterial() {
     descripcion: document.getElementById('vi-descripcion')?.value,
     unidad: document.getElementById('vi-unidad')?.value,
     precio: document.getElementById('vi-precio')?.value,
-    existencia: existingItem ? existingItem.existencia : document.getElementById('vi-existencia')?.value
+    existencia: document.getElementById('vi-existencia')?.value
   });
   if (!item.descripcion) { showToast('Ingrese la descripción del material', 'error'); return; }
   const duplicate = valesInventario.find(x => normalizeSearchText(x.clave) === normalizeSearchText(item.clave) && item.clave && String(x.id) !== String(item.id));
@@ -5727,7 +5727,8 @@ function renderValeInventario() {
     <td class="admin-only">
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
         <button type="button" class="btn btn-entry btn-sm" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
-        <button type="button" class="btn btn-outline btn-sm" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Gestionar</button>
+        <button type="button" class="btn btn-outline btn-sm" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
+        <button type="button" class="btn btn-danger btn-sm" data-vale-delete-id="${esc(i.id)}" onclick="deleteValeInventoryMaterial(${JSON.stringify(i.id)})"><i class="fas fa-trash"></i> Eliminar</button>
       </div>
     </td>
   </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; padding:28px; color:#94a3b8; font-weight:700;">No hay materiales en este inventario.</td></tr>';
@@ -5810,6 +5811,10 @@ async function saveValeInventoryEntry() {
 }
 
 async function deleteValeInventoryMaterial(id) {
+  if (!canManageValeInventory()) {
+    showToast('Solo el administrador puede eliminar materiales del Inventario Vale / Donación', 'error');
+    return;
+  }
   const item = valesInventario.find(x => String(x.id) === String(id));
   if (!item) { showToast('Material no encontrado', 'error'); return; }
   const linkedVale = (Array.isArray(valesManuales) ? valesManuales : []).find(v => v.inventarioAfectado === true && (v.items || []).some(i => String(i.inventarioId) === String(id) || (item.clave && normalizeSearchText(i.clave || '') === normalizeSearchText(item.clave))));
