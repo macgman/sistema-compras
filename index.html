@@ -4231,7 +4231,7 @@ function renderHistorialVentas() {
 
   document.getElementById('hv-list').innerHTML = records.slice(0, 100).map(v => {
     const isVale = v._recordType === 'vale';
-    const nombre = isVale ? (v.trabajador || 'Sin trabajador') : (v.cliente || 'Sin solicitante');
+    const nombre = isVale ? (v.departamento || 'Sin departamento') : (v.cliente || 'Sin solicitante');
     const subtitulo = isVale
       ? `${v.fecha || ''} | ${v.items?.length || 0} material(es) | Vale manual${v.tipo ? ` | ${esc(v.tipo)}` : ''}`
       : `${v.fecha || ''} | ${v.items?.length || 0} material(es) | Venta`;
