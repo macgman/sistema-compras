@@ -715,6 +715,7 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
             <button class="btn btn-primary" type="button" onclick="openValeInventoryMaterialForm()"><i class="fas fa-plus"></i> Agregar material</button>
             <input type="file" id="vale-inventory-excel-input" accept=".xlsx" style="display:none" onchange="importValeInventoryExcel(this)">
             <button class="btn btn-outline" type="button" onclick="document.getElementById('vale-inventory-excel-input').click()"><i class="fas fa-file-excel"></i> Cargar Excel</button>
+            <button class="btn btn-success" type="button" onclick="exportValeInventoryExcel()"><i class="fas fa-file-excel"></i> Exportar Excel</button>
             <button class="btn btn-outline" type="button" onclick="exportValeInventoryJSON()"><i class="fas fa-file-export"></i> Exportar JSON</button>
             <input type="file" id="vale-inventory-json-input" accept=".json,application/json" style="display:none" onchange="importValeInventoryJSON(this)">
             <button class="btn btn-outline" type="button" onclick="document.getElementById('vale-inventory-json-input').click()"><i class="fas fa-file-import"></i> Importar JSON</button>
@@ -5997,6 +5998,52 @@ async function importValeInventoryExcel(input) {
   } catch (err) {
     showToast(`Error al cargar Excel: ${err.message}`, 'error');
     input.value = '';
+  }
+}
+
+async function exportValeInventoryExcel() {
+  const items = Array.isArray(valesInventario) ? valesInventario : [];
+
+  if (typeof ExcelJS === 'undefined') {
+    showToast('La exportación de Excel no está disponible porque la librería ExcelJS no está cargada.', 'error');
+    return;
+  }
+
+  if (!items.length) {
+    showToast('No hay materiales para exportar en el Inventario Vale / Donación.', 'warning');
+    return;
+  }
+
+  try {
+    const rows = items.map(item => {
+      const existencia = Math.max(0, Number(item.existencia) || 0);
+      const precio = Math.max(0, Number(item.precio) || 0);
+      return [
+        fixTextForExcel(item.clave || ''),
+        fixTextForExcel(item.descripcion || ''),
+        fixTextForExcel(item.unidad || 'PIEZA'),
+        precio,
+        existencia,
+        existencia > 0 ? 'DISPONIBLE' : 'AGOTADO'
+      ];
+    });
+
+    const sheets = [{
+      name: 'Inventario Vale',
+      headers: ['Clave', 'Descripción', 'Unidad', 'Precio', 'Existencia', 'Estado'],
+      widths: [22, 65, 18, 16, 14, 18],
+      rows
+    }];
+
+    await downloadStyledWorkbook(
+      sheets,
+      `inventario_vale_donacion_${todayISO()}.xlsx`
+    );
+
+    showToast(`Inventario Vale / Donación exportado: ${items.length} material(es)`);
+  } catch (err) {
+    console.error('Error al exportar Inventario Vale / Donación a Excel:', err);
+    showToast('No fue posible exportar el Inventario Vale / Donación a Excel.', 'error');
   }
 }
 
