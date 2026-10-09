@@ -3824,11 +3824,22 @@ async function prepareFolioForNewVenta(capturedFolio) {
 
   if (!isAutomatic) return normalizedCaptured;
 
-  // En línea: Firebase asigna el consecutivo de forma atómica.
-  const reserved = await reserveNextSharedFolio(normalizedCurrent);
+  // En línea: Firebase asigna el consecutivo de forma atómica. Algunas
+  // conexiones dejan la transacción pendiente indefinidamente; no debemos
+  // bloquear el botón Finalizar Compra por esperar a Firebase.
+  let reserved = null;
+  try {
+    reserved = await Promise.race([
+      reserveNextSharedFolio(normalizedCurrent),
+      new Promise(resolve => setTimeout(() => resolve(null), 5000))
+    ]);
+  } catch (e) {
+    console.warn('[FOLIO] Se usará el consecutivo local porque falló la reserva remota.', e);
+  }
   if (reserved) return reserved;
 
-  // Respaldo local cuando no hay conexión: jamás baja del máximo existente.
+  // Respaldo local cuando Firebase está desconectado o tarda demasiado:
+  // jamás baja del máximo existente y permite finalizar la operación.
   const nextNumber = Math.max(getFolioNumber(normalizedCurrent), getHighestActiveFolioNumber() + 1);
   return buildFolioFromNumber(nextNumber, normalizedCurrent);
 }
