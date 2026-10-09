@@ -209,6 +209,7 @@
 
   .admin-only { display: none !important; }
   body.is-admin .admin-only { display: block !important; }
+  body.is-admin td.admin-only, body.is-admin th.admin-only { display: table-cell !important; }
   body.is-admin .admin-inline { display: inline-flex !important; }
   .folio-permission { display: none !important; }
   body.is-admin .folio-permission,
@@ -5740,13 +5741,20 @@ function renderValeInventario() {
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
         <button type="button" class="btn btn-entry btn-sm" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
         <button type="button" class="btn btn-outline btn-sm" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
-        <button type="button" class="btn btn-danger btn-sm" data-vale-delete-id="${esc(i.id)}" onclick="deleteValeInventoryMaterial(${JSON.stringify(i.id)})"><i class="fas fa-trash"></i> Eliminar</button>
+        <button type="button" class="btn btn-danger btn-sm" data-vale-delete-id="${esc(i.id)}"><i class="fas fa-trash"></i> Eliminar</button>
       </div>
     </td>
   </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; padding:28px; color:#94a3b8; font-weight:700;">No hay materiales en este inventario.</td></tr>';
 }
 
 document.addEventListener('click', function(e) {
+  const deleteBtn = e.target.closest('[data-vale-delete-id]');
+  if (deleteBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    deleteValeInventoryMaterial(deleteBtn.getAttribute('data-vale-delete-id'));
+    return;
+  }
   const entryBtn = e.target.closest('[data-vale-entry-id]');
   if (entryBtn) { e.preventDefault(); openValeInventoryEntryModal(entryBtn.getAttribute('data-vale-entry-id')); return; }
   const manageBtn = e.target.closest('[data-vale-manage-id]');
@@ -5827,19 +5835,71 @@ async function deleteValeInventoryMaterial(id) {
     showToast('Solo el administrador puede eliminar materiales del Inventario Vale / Donación', 'error');
     return;
   }
+
   const item = valesInventario.find(x => String(x.id) === String(id));
-  if (!item) { showToast('Material no encontrado', 'error'); return; }
-  const linkedVale = (Array.isArray(valesManuales) ? valesManuales : []).find(v => v.inventarioAfectado === true && (v.items || []).some(i => String(i.inventarioId) === String(id) || (item.clave && normalizeSearchText(i.clave || '') === normalizeSearchText(item.clave))));
-  if (linkedVale) {
-    showToast(`No puede eliminarse "${item.descripcion}" porque está ligado al Vale Manual ${linkedVale.folio}. Elimine o modifique primero el vale.`, 'error');
+  if (!item) {
+    showToast('Material no encontrado. Actualice el inventario y vuelva a intentarlo.', 'error');
     return;
   }
-  if (!confirm(`¿Eliminar "${item.descripcion}" del Inventario Vale / Donación?`)) return;
-  valesInventario = valesInventario.filter(x => String(x.id) !== String(id));
-  await idbSetMeta('valesInventario', valesInventario);
-  await broadcastFullSync(false, true);
-  renderValeInventario();
-  showToast('Material eliminado del inventario de Vale / Donación', 'warning');
+
+  // Detectar referencias en vales históricos. Si se elimina el material,
+  // conservamos los datos impresos del vale, pero quitamos la relación con
+  // el inventario para que el vale histórico pueda seguir consultándose,
+  // modificándose o eliminándose sin bloquearse por un material inexistente.
+  const matchesDeletedItem = (line) => {
+    if (String(line?.inventarioId ?? '') === String(id)) return true;
+    // Compatibilidad con vales antiguos que marcaban el renglón como ligado
+    // al inventario, pero no guardaban inventarioId: solo usar la clave en ese caso.
+    return line?.inventarioId == null && line?.afectaInventario === true && !!item.clave &&
+      normalizeSearchText(line?.clave || '') === normalizeSearchText(item.clave);
+  };
+  const linkedVales = (Array.isArray(valesManuales) ? valesManuales : []).filter(v =>
+    (v.items || []).some(matchesDeletedItem)
+  );
+
+  const warning = linkedVales.length
+    ? `\n\nEstá relacionado con ${linkedVales.length} Vale(s) Manual(es). Se conservarán esos vales en el historial, pero sus renglones de este material dejarán de modificar existencias del inventario.`
+    : '';
+  if (!confirm(`¿Eliminar "${item.descripcion}" del Inventario Vale / Donación?${warning}`)) return;
+
+  try {
+    if (linkedVales.length) {
+      const linkedValeIds = new Set(linkedVales.map(v => String(v.id)));
+      valesManuales = valesManuales.map(v => {
+        if (!linkedValeIds.has(String(v.id))) return v;
+        const updatedItems = (v.items || []).map(line => {
+          if (!matchesDeletedItem(line)) return line;
+          return { ...line, inventarioId: null, afectaInventario: false };
+        });
+        return {
+          ...v,
+          items: updatedItems,
+          inventarioAfectado: updatedItems.some(line => line.inventarioId != null && line.afectaInventario === true),
+          updatedAt: Date.now()
+        };
+      });
+      await idbSetMeta('valesManuales', valesManuales);
+    }
+
+    valesInventario = valesInventario.filter(x => String(x.id) !== String(id));
+    await idbSetMeta('valesInventario', valesInventario);
+    // Persistir localmente antes de sincronizar para que un fallo de red no
+    // revierta visualmente la eliminación en este equipo.
+    await saveLocalData();
+    renderValeInventario();
+    renderHistorialVentas();
+
+    try {
+      await broadcastFullSync(false, true);
+      showToast(`Material "${item.descripcion}" eliminado del Inventario Vale / Donación`, 'warning');
+    } catch (syncError) {
+      console.error('Error sincronizando eliminación de material de Vale/Donación:', syncError);
+      showToast('Material eliminado localmente, pero no se pudo sincronizar con Firebase. Revise la conexión.', 'warning');
+    }
+  } catch (error) {
+    console.error('Error eliminando material de Vale/Donación:', error);
+    showToast('No se pudo guardar la eliminación del material. Revise el almacenamiento y vuelva a intentarlo.', 'error');
+  }
 }
 
 function searchValeInventory() {
