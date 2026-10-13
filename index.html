@@ -3715,10 +3715,11 @@ async function reserveNextSharedFolio(requestedFolio, token) {
   const requestedNumber = getFolioNumber(requestedFolio);
   if (!requestedNumber) return null;
 
-  // Referencia local: el contador remoto jamás debería estar muy por encima
-  // del folio mostrado y del mayor folio realmente registrado. Si lo está,
-  // quedó inflado por intentos fallidos (ej. F-431) y se autocorrige.
-  const localCeiling = Math.max(requestedNumber, getHighestActiveFolioNumber() + 1);
+  // El folio visible/solicitado es la autoridad del consecutivo. No usar
+  // el máximo histórico como referencia: pueden existir registros antiguos
+  // (por ejemplo F-431) aunque el consecutivo actual sea F-204. Usar el
+  // historial aquí provoca que la reserva salte indebidamente a F-431.
+  const localCeiling = requestedNumber;
   const MAX_GAP = 25;
 
   try {
@@ -3812,9 +3813,10 @@ async function prepareFolioForNewVenta(capturedFolio) {
   const reserved = await reserveSharedFolioWithTimeout(normalizedCurrent, 5000);
   if (reserved) return reserved;
 
-  // Respaldo local cuando Firebase está desconectado o tarda demasiado:
-  // jamás baja del máximo existente y permite finalizar la operación.
-  const nextNumber = Math.max(getFolioNumber(normalizedCurrent), getHighestActiveFolioNumber() + 1);
+  // Respaldo local cuando Firebase está desconectado o tarda demasiado.
+  // Mantiene el consecutivo mostrado; el historial se usa para detectar
+  // duplicados, no para saltar el contador a un folio antiguo como F-431.
+  const nextNumber = Math.max(1, getFolioNumber(normalizedCurrent));
   return buildFolioFromNumber(nextNumber, normalizedCurrent);
 }
 
@@ -6491,7 +6493,7 @@ async function _saveValeManualCore() {
       ? fixTextForExcel(currentFolio)
       : await reserveSharedFolioWithTimeout(currentFolio, 5000);
     folio = reservedValeFolio || buildFolioFromNumber(
-      Math.max(getFolioNumber(currentFolio), getHighestActiveFolioNumber() + 1),
+      Math.max(1, getFolioNumber(currentFolio)),
       currentFolio
     );
 
