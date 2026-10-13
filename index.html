@@ -8,6 +8,7 @@
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
 <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
 <!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
@@ -1713,7 +1714,7 @@ if (!firebaseClientId) {
 }
 
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyANM0wwkwxCHYsavD_YGD2akQj707iOVOI",
+  apiKey: "AIzaSyCkk4fZkTOcF2iaTShjUO_cfG2Morq6Kso",
   authDomain: "compra-pro-888c9.firebaseapp.com",
   databaseURL: "https://compra-pro-888c9-default-rtdb.firebaseio.com",
   projectId: "compra-pro-888c9",
@@ -2668,150 +2669,90 @@ function togglePasswordVisibility() {
 }
 
 // =============================================================
-// LOGIN Y GESTIÓN MULTI-USUARIO CON CLAVE MAESTRA
+// LOGIN VALIDADO POR EL SERVIDOR DE COMPRA-PRO
 // =============================================================
-const MASTER_PIN = '9999';
+const COMPRA_PRO_AUTH_API = 'https://compra-pro-security.onrender.com';
 
 async function attemptLoginMulti() {
   const userEl = document.getElementById('login-user');
   const passEl = document.getElementById('login-pass');
   if (!userEl || !passEl) return;
 
-  ensureLoginUsers();
+  const username = String(userEl.value || '').trim().toLowerCase();
+  // No recortar la contraseña: puede contener espacios válidos.
+  const password = String(passEl.value || '');
+  const roomId = String(cloudRoomId || localStorage.getItem(STORAGE_PREFIX + 'cloud_room') || '').trim();
 
-  const uInput = userEl.value.trim().toLowerCase();
-  const pInput = passEl.value.trim();
-
-  if (!uInput || !pInput) {
+  if (!username || !password) {
     showToast('Ingrese su usuario y contraseña', 'error');
     return;
   }
+  if (typeof fetch !== 'function') {
+    showToast('Este navegador no permite conectar con el servicio de acceso.', 'error');
+    return;
+  }
 
-  // Clave maestra de recuperación para el administrador.
-  if (pInput === MASTER_PIN) {
-    let adminUser = users.find(u => String(u.username).toLowerCase() === 'admin' && u.role === 'admin' && u.active !== false)
-      || users.find(u => u.role === 'admin' && u.active !== false)
-      || users.find(u => u.role === 'admin');
+  let stage = 'server';
+  try {
+    showToast('Validando acceso seguro…', 'warning');
+    const response = await fetch(COMPRA_PRO_AUTH_API + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, roomId })
+    });
 
-    if (!adminUser) {
-      adminUser = {
-        id: 1,
-        username: 'admin',
-        passHash: await hashSHA256('admin123'),
-        name: 'Administrador Principal',
-        role: 'admin',
-        active: true,
-        updatedAt: Date.now()
-      };
-      users.unshift(adminUser);
-      await saveLocalData();
+    let result = {};
+    try { result = await response.json(); } catch (_) {}
+
+    if (!response.ok || !result.ok || !result.token || !result.user) {
+      const message = result.error || (response.status === 401
+        ? 'Usuario o contraseña incorrectos.'
+        : `El servidor rechazó el acceso (HTTP ${response.status}).`);
+      showToast(message, 'error');
+      if (response.status === 401) passEl.select();
+      return;
     }
 
+    stage = 'firebase-auth';
+    if (typeof firebase === 'undefined' || !firebase.auth || !initFirebase()) {
+      showToast('El SDK de Firebase Authentication no se cargó. Comprueba tu conexión a Internet.', 'error');
+      return;
+    }
+
+    const auth = firebase.auth(firebaseApp);
+    await auth.signInWithCustomToken(result.token);
+
+    const role = ['admin', 'user', 'folio'].includes(result.user.role)
+      ? result.user.role : 'user';
     currentUser = {
-      id: adminUser.id,
-      role: 'admin',
-      name: adminUser.name,
-      username: adminUser.username
+      id: result.user.id ?? null,
+      role,
+      name: String(result.user.name || result.user.username || username),
+      username: String(result.user.username || username)
     };
+
     sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
     applyUserRole();
-
     passEl.value = '';
     userEl.value = '';
-    showToast('Acceso concedido con Clave Maestra', 'warning');
-
-    setTimeout(() => {
-      openUserModal(adminUser.id);
-      showToast('Escriba una nueva contraseña y guarde los cambios');
-    }, 600);
-    return;
-  }
-
-  const pHash = await hashSHA256(pInput);
-
-  // Reparación segura del administrador predeterminado:
-  // si se usa admin/admin123 y existe el usuario admin con una contraseña
-  // antigua, se actualiza solamente su hash. No se borran productos,
-  // compras, movimientos ni otros usuarios.
-  let match = users.find(u =>
-    String(u.username).toLowerCase() === uInput &&
-    u.active !== false &&
-    (u.passHash === pHash || u.pass === pInput)
-  );
-
-  if (!match && uInput === 'admin' && pInput === 'admin123') {
-    const defaultAdmin = DEFAULT_USERS.find(u => String(u.username).toLowerCase() === 'admin');
-    const localAdmin = users.find(u => String(u.username).toLowerCase() === 'admin');
-
-    // La contraseña inicial solo puede recuperar una cuenta que todavía
-    // conserva la credencial inicial. Si el administrador ya estableció una
-    // contraseña nueva, una PC antigua no podrá volver a imponer admin123.
-    if (!localAdmin || isDefaultUserCredential(localAdmin)) {
-      match = localAdmin || {
-        id: defaultAdmin ? defaultAdmin.id : 1,
-        username: 'admin',
-        passHash: pHash,
-        name: 'Administrador Principal',
-        role: 'admin',
-        active: true,
-        updatedAt: Date.now()
-      };
-
-      if (localAdmin) {
-        match.passHash = pHash;
-        delete match.pass;
-        match.role = 'admin';
-        match.active = true;
-        match.name = match.name || 'Administrador Principal';
-        match.updatedAt = Date.now();
-      }
-
-      await saveLocalData();
-
-      // Intentar publicar la reparación en Firebase, pero permitir el acceso
-      // aunque Firebase no esté disponible.
-      try {
-        await broadcastFullSync();
-      } catch (e) {
-        console.warn('No se pudo publicar la reparación del administrador:', e);
-      }
+    showToast(`Bienvenido/a, ${currentUser.name}`);
+  } catch (error) {
+    const code = String(error?.code || '');
+    console.error('COMPRA-PRO login failure stage=' + stage + ' code=' + code + ' name=' + String(error?.name || 'Error'));
+    let message;
+    if (stage === 'server') {
+      message = 'No se pudo comunicar con el servidor de acceso. Comprueba la conexión y la configuración CORS de Render.';
+    } else if (code === 'auth/invalid-custom-token' || code === 'auth/custom-token-mismatch') {
+      message = 'El servidor respondió, pero Firebase rechazó el token. El proyecto de Firebase del servidor no coincide o la credencial no es válida.';
+    } else if (code === 'auth/operation-not-allowed') {
+      message = 'Firebase rechazó el inicio con token personalizado. Hay que revisar la configuración del proyecto.';
+    } else if (code === 'auth/network-request-failed') {
+      message = 'El servidor validó la solicitud, pero el navegador no pudo terminar la sesión con Firebase. Revisa Internet o abre la aplicación desde una dirección HTTPS.';
+    } else {
+      message = 'El servidor respondió, pero Firebase no pudo completar la sesión (' + (code || 'error desconocido') + '). Revisa los registros de Render.';
     }
+    showToast(message, 'error');
   }
-
-  if (!match) {
-    showToast('Usuario o contraseña incorrectos', 'error');
-    passEl.select();
-    return;
-  }
-
-  if (match.active === false) {
-    showToast('Este usuario se encuentra desactivado. Consulte al Administrador.', 'error');
-    return;
-  }
-
-  if (!match.passHash && match.pass) {
-    match.passHash = pHash;
-    delete match.pass;
-    match.updatedAt = Date.now();
-    await saveLocalData();
-    try {
-      await broadcastFullSync();
-    } catch (e) {
-      console.warn('No se pudo sincronizar la actualización de contraseña:', e);
-    }
-  }
-
-  currentUser = {
-    id: match.id,
-    role: match.role,
-    name: match.name,
-    username: match.username
-  };
-
-  sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
-  applyUserRole();
-  passEl.value = '';
-  showToast(`Bienvenido/a, ${match.name}`);
 }
 
 function applyUserRole() {
@@ -6842,7 +6783,7 @@ async function confirmResetSystem() {
     return;
   }
 
-  let authorized = (pass === MASTER_PIN);
+  let authorized = false;
 
   if (!authorized) {
     const pHash = await hashSHA256(pass);
