@@ -1598,6 +1598,9 @@ function updateCloudBadge(state, text) {
 const STORAGE_PREFIX = 'compra_v2_';
 
 let cloudRoomId = localStorage.getItem(STORAGE_PREFIX + 'cloud_room') || '';
+let firebaseConnectionIsUp = false;
+let firebaseReconnectInProgress = false;
+let firebaseLastReconnectAttempt = 0;
 
 // Variables heredadas conservadas para que el resto del programa no tenga
 // que cambiar y para que el reinicio total siga siendo compatible.
@@ -1952,6 +1955,7 @@ async function firebaseConnectRoom() {
     connectionInfoRef.off();
     connectionInfoRef.on('value', (snapshot) => {
       const connected = snapshot.val() === true;
+      firebaseConnectionIsUp = connected;
       if (connected) {
         updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
       } else {
@@ -2047,8 +2051,40 @@ async function saveCloudRoom() {
 }
 
 function reconnectCloud() {
-  firebaseConnectRoom();
+  firebaseConnectionIsUp = false;
+  return firebaseConnectRoom();
 }
+
+// En móviles, el navegador puede suspender la conexión de Firebase cuando
+// la pestaña queda en segundo plano. Al volver, reactivar la sala compartida
+// automáticamente sin esperar a que el usuario cierre sesión y entre como admin.
+async function recoverFirebaseConnection(force = false) {
+  if (!cloudRoomId || !initFirebase() || firebaseReconnectInProgress) return;
+  if (!force && firebaseConnectionIsUp) return;
+  const now = Date.now();
+  if (now - firebaseLastReconnectAttempt < 5000) return;
+  firebaseLastReconnectAttempt = now;
+  firebaseReconnectInProgress = true;
+  try {
+    await firebaseConnectRoom();
+  } catch (error) {
+    console.warn('No se pudo recuperar automáticamente Firebase:', error);
+  } finally {
+    firebaseReconnectInProgress = false;
+  }
+}
+
+window.addEventListener('online', () => {
+  setTimeout(() => recoverFirebaseConnection(true), 500);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    setTimeout(() => recoverFirebaseConnection(false), 700);
+  }
+});
+window.addEventListener('focus', () => {
+  setTimeout(() => recoverFirebaseConnection(false), 700);
+});
 
 async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved = false) {
   sanitizeStoredData();
