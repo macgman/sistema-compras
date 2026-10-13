@@ -1454,6 +1454,7 @@ function idbPutAll(storeName, items) {
     items.forEach(item => st.put(item));
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e);
+    tx.onabort = (e) => reject(e);
   });
 }
 
@@ -1466,6 +1467,7 @@ function idbClearAndPutAll(storeName, items) {
     items.forEach(item => st.put(item));
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e);
+    tx.onabort = (e) => reject(e);
   });
 }
 
@@ -1475,6 +1477,9 @@ function idbSetMeta(key, value) {
     const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').put({ key, value });
     tx.oncomplete = () => resolve();
+    // Si IndexedDB falla o aborta, la promesa debe terminar para no congelar la pantalla.
+    tx.onerror = () => { console.warn('[IDB] Error guardando meta:', key); resolve(); };
+    tx.onabort = () => { console.warn('[IDB] Guardado abortado en meta:', key); resolve(); };
   });
 }
 
@@ -1485,6 +1490,7 @@ function idbGetMeta(key, fallback) {
     const req = tx.objectStore('meta').get(key);
     req.onsuccess = () => resolve(req.result ? req.result.value : fallback);
     req.onerror = () => resolve(fallback);
+    tx.onabort = () => resolve(fallback);
   });
 }
 
@@ -3758,29 +3764,63 @@ function findDuplicateFolioInSameMonth(folio, fecha, recordType = '', recordId =
 // Cualquier pantalla que registre una operación nueva debe pasar por esta
 // misma reserva atómica para que el orden sea único, sin importar qué opción
 // se utilizó primero.
-async function reserveNextSharedFolio(requestedFolio) {
+async function reserveNextSharedFolio(requestedFolio, token) {
   if (!initFirebase()) return null;
   if (!firebaseRoomRef) await firebaseConnectRoom();
   if (!firebaseRoomRef) return null;
+  // Si ya se agotó el tiempo de espera, no se inicia ninguna transacción.
+  if (token && token.cancelled) return null;
 
   const requestedNumber = getFolioNumber(requestedFolio);
   if (!requestedNumber) return null;
 
+  // Referencia local: el contador remoto jamás debería estar muy por encima
+  // del folio mostrado y del mayor folio realmente registrado. Si lo está,
+  // quedó inflado por intentos fallidos (ej. F-431) y se autocorrige.
+  const localCeiling = Math.max(requestedNumber, getHighestActiveFolioNumber() + 1);
+  const MAX_GAP = 25;
+
   try {
     const sequenceRef = firebaseDB.ref(getFirebaseRoomPath() + '/data/folioSequence');
     const result = await sequenceRef.transaction(current => {
-      const currentNumber = Number(current) || 0;
+      // Si la espera ya se canceló, se aborta: no se consume ningún número.
+      if (token && token.cancelled) return;
+      let currentNumber = Number(current) || 0;
+      if (currentNumber > localCeiling + MAX_GAP) {
+        console.warn('[FOLIO] Contador remoto inflado (' + currentNumber + '); se corrige a ' + (localCeiling - 1));
+        currentNumber = localCeiling - 1;
+      }
       // El número solicitado es el que está mostrando el sistema. Si otro
       // equipo ya lo reservó, el siguiente disponible se toma automáticamente.
       return Math.max(currentNumber, requestedNumber - 1) + 1;
-    });
+    }, undefined, false);
 
     if (!result.committed) return null;
+    if (token && token.cancelled) return null;
     const reservedNumber = Number(result.snapshot.val()) || 0;
     return reservedNumber > 0 ? buildFolioFromNumber(reservedNumber, requestedFolio) : null;
   } catch (e) {
     console.warn('[FOLIO] No se pudo reservar en Firebase; se usa respaldo local.', e);
     return null;
+  }
+}
+
+// Reserva con tiempo límite real: al vencer, la transacción pendiente se cancela
+// (no queda "viva" subiendo el contador minutos después).
+async function reserveSharedFolioWithTimeout(requestedFolio, ms = 5000) {
+  const token = { cancelled: false };
+  let timer = null;
+  try {
+    return await Promise.race([
+      reserveNextSharedFolio(requestedFolio, token),
+      new Promise(resolve => { timer = setTimeout(() => { token.cancelled = true; resolve(null); }, ms); })
+    ]);
+  } catch (e) {
+    token.cancelled = true;
+    console.warn('[FOLIO] Falló la reserva remota.', e);
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -3828,15 +3868,7 @@ async function prepareFolioForNewVenta(capturedFolio) {
   // En línea: Firebase asigna el consecutivo de forma atómica. Algunas
   // conexiones dejan la transacción pendiente indefinidamente; no debemos
   // bloquear el botón Finalizar Compra por esperar a Firebase.
-  let reserved = null;
-  try {
-    reserved = await Promise.race([
-      reserveNextSharedFolio(normalizedCurrent),
-      new Promise(resolve => setTimeout(() => resolve(null), 5000))
-    ]);
-  } catch (e) {
-    console.warn('[FOLIO] Se usará el consecutivo local porque falló la reserva remota.', e);
-  }
+  const reserved = await reserveSharedFolioWithTimeout(normalizedCurrent, 5000);
   if (reserved) return reserved;
 
   // Respaldo local cuando Firebase está desconectado o tarda demasiado:
@@ -3845,7 +3877,25 @@ async function prepareFolioForNewVenta(capturedFolio) {
   return buildFolioFromNumber(nextNumber, normalizedCurrent);
 }
 
+let _guardandoVenta = false;
 async function saveVenta() {
+  // Candado: evita que varios clics ejecuten varios guardados a la vez.
+  if (_guardandoVenta) return;
+  _guardandoVenta = true;
+  const btn = document.getElementById('venta-save-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await _saveVentaCore();
+  } catch (e) {
+    console.error('Error al guardar la compra:', e);
+    showToast('No se pudo completar el guardado: ' + (e && e.message ? e.message : 'error desconocido'), 'error');
+  } finally {
+    _guardandoVenta = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function _saveVentaCore() {
   if (!ventaItems.length) { showToast('Agregue materiales', 'error'); return; }
 
   // Protección defensiva: nunca validar folios contra compras eliminadas.
@@ -3861,6 +3911,28 @@ async function saveVenta() {
 
   const isEditing = editingVentaId !== null && editingVentaId !== undefined;
   let folio = capturedFolio;
+
+  // Primero se validan los materiales/stock; así no se gasta un folio si hay un error.
+  const cleanVentaItems = [];
+  for (const item of ventaItems) {
+    const prod = products.find(x => String(x.id) === String(item.productId));
+    const cantidad = Number(item.cantidad);
+    const precio = Number(item.precio);
+    if (!prod) { showToast(`No se encontro el material ${item.clave || ''}`, 'error'); return; }
+    if (prod.bloqueado) { showToast(`El material ${prod.descripcion} esta bloqueado`, 'error'); return; }
+    if (!Number.isFinite(cantidad) || cantidad <= 0) { showToast('Todas las cantidades deben ser mayores que cero', 'error'); return; }
+    if (!Number.isFinite(precio) || precio < 0) { showToast('Se detecto un precio invalido', 'error'); return; }
+    const disponible = getStockDisponibleParaVenta(item.productId);
+    if (cantidad > disponible) { showToast(`Stock insuficiente para ${prod.descripcion}`, 'error'); return; }
+    cleanVentaItems.push({
+      ...item,
+      clave: fixTextForExcel(item.clave || prod.clave),
+      descripcion: fixTextForExcel(item.descripcion || prod.descripcion),
+      unidad: fixTextForExcel(item.unidad || prod.unidad || 'PIEZA'),
+      precio,
+      cantidad
+    });
+  }
 
   // Para una compra nueva, si el usuario dejó el folio automático, se reserva
   // antes de validar/guardar. Así el consecutivo no depende del reloj de cada PC.
@@ -3906,27 +3978,6 @@ async function saveVenta() {
       'error'
     );
     return;
-  }
-
-  const cleanVentaItems = [];
-  for (const item of ventaItems) {
-    const prod = products.find(x => String(x.id) === String(item.productId));
-    const cantidad = Number(item.cantidad);
-    const precio = Number(item.precio);
-    if (!prod) { showToast(`No se encontro el material ${item.clave || ''}`, 'error'); return; }
-    if (prod.bloqueado) { showToast(`El material ${prod.descripcion} esta bloqueado`, 'error'); return; }
-    if (!Number.isFinite(cantidad) || cantidad <= 0) { showToast('Todas las cantidades deben ser mayores que cero', 'error'); return; }
-    if (!Number.isFinite(precio) || precio < 0) { showToast('Se detecto un precio invalido', 'error'); return; }
-    const disponible = getStockDisponibleParaVenta(item.productId);
-    if (cantidad > disponible) { showToast(`Stock insuficiente para ${prod.descripcion}`, 'error'); return; }
-    cleanVentaItems.push({
-      ...item,
-      clave: fixTextForExcel(item.clave || prod.clave),
-      descripcion: fixTextForExcel(item.descripcion || prod.descripcion),
-      unidad: fixTextForExcel(item.unidad || prod.unidad || 'PIEZA'),
-      precio,
-      cantidad
-    });
   }
 
   const now = Date.now();
@@ -6414,7 +6465,24 @@ function commitValeInventoryStockChange(plan) {
   return true;
 }
 
+let _guardandoVale = false;
 async function saveValeManual() {
+  if (_guardandoVale) return;
+  _guardandoVale = true;
+  const btn = document.getElementById('vale-manual-save-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await _saveValeManualCore();
+  } catch (e) {
+    console.error('Error al guardar el vale manual:', e);
+    showToast('No se pudo completar el guardado: ' + (e && e.message ? e.message : 'error desconocido'), 'error');
+  } finally {
+    _guardandoVale = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function _saveValeManualCore() {
   const trabajador = fixTextForExcel(document.getElementById('vale-trabajador')?.value || '').trim();
   const departamento = fixTextForExcel(document.getElementById('vale-departamento')?.value || '').trim();
   const cargo = fixTextForExcel(document.getElementById('vale-cargo')?.value || '').trim();
@@ -6480,7 +6548,7 @@ async function saveValeManual() {
   } else {
     const reservedValeFolio = wasManualFolioOverride
       ? fixTextForExcel(currentFolio)
-      : await reserveNextSharedFolio(currentFolio);
+      : await reserveSharedFolioWithTimeout(currentFolio, 5000);
     folio = reservedValeFolio || buildFolioFromNumber(
       Math.max(getFolioNumber(currentFolio), getHighestActiveFolioNumber() + 1),
       currentFolio
