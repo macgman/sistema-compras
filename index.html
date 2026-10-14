@@ -2730,12 +2730,36 @@ async function attemptLoginMulti() {
 
   let stage = 'server';
   try {
-    showToast('Validando acceso seguro…', 'warning');
-    const response = await fetch(COMPRA_PRO_AUTH_API + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, roomId })
-    });
+    showToast('Conectando con el servidor de acceso… Si estaba inactivo, puede tardar hasta un minuto.', 'warning');
+
+    // Render puede tardar en despertar después de un periodo de inactividad.
+    // Damos tiempo suficiente a cada intento y reintentamos una sola vez
+    // únicamente ante errores de red/tiempo de espera; no repetimos credenciales
+    // si el servidor ya respondió con un error HTTP.
+    let response = null;
+    let lastNetworkError = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = setTimeout(() => { if (controller) controller.abort(); }, 90000);
+      try {
+        response = await fetch(COMPRA_PRO_AUTH_API + '/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, roomId }),
+          signal: controller ? controller.signal : undefined,
+          cache: 'no-store'
+        });
+        clearTimeout(timeoutId);
+        break;
+      } catch (networkError) {
+        clearTimeout(timeoutId);
+        lastNetworkError = networkError;
+        if (attempt >= 2) throw networkError;
+        showToast('El servidor está tardando en responder. Reintentando conexión…', 'warning');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+    }
+    if (!response) throw lastNetworkError || new Error('No hubo respuesta del servidor');
 
     let result = {};
     try { result = await response.json(); } catch (_) {}
@@ -2777,7 +2801,7 @@ async function attemptLoginMulti() {
     console.error('COMPRA-PRO login failure stage=' + stage + ' code=' + code + ' name=' + String(error?.name || 'Error'));
     let message;
     if (stage === 'server') {
-      message = 'No se pudo comunicar con el servidor de acceso. Comprueba la conexión y la configuración CORS de Render.';
+      message = 'No se pudo conectar con el servidor de acceso después de dos intentos. Espera un minuto y vuelve a intentarlo; si persiste, revisa el servicio y los registros de Render.';
     } else if (code === 'auth/invalid-custom-token' || code === 'auth/custom-token-mismatch') {
       message = 'El servidor respondió, pero Firebase rechazó el token. El proyecto de Firebase del servidor no coincide o la credencial no es válida.';
     } else if (code === 'auth/operation-not-allowed') {
