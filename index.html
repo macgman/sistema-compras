@@ -7538,8 +7538,27 @@ setInterval(updateOfflineBanner, 3000);
 document.addEventListener('DOMContentLoaded', () => setTimeout(updateOfflineBanner, 1500));
 
 
+// Despertar Render en cuanto se abre COMPRA-PRO, no hasta que el usuario
+// presione Iniciar sesión. En planes que suspenden el servicio, esto permite
+// que el servidor empiece a arrancar mientras el usuario captura sus datos.
+let compraProAuthWarmupStarted = false;
+function warmupCompraProAuthServer() {
+  if (compraProAuthWarmupStarted || typeof fetch !== 'function' || !navigator.onLine) return;
+  compraProAuthWarmupStarted = true;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, 12000);
+  fetch(COMPRA_PRO_AUTH_API + '/health', {
+    method: 'GET',
+    cache: 'no-store',
+    signal: controller ? controller.signal : undefined
+  }).catch(() => {
+    // Es solo precalentamiento: nunca bloquear ni mostrar errores al usuario.
+  }).finally(() => clearTimeout(timer));
+}
+
 window.addEventListener('DOMContentLoaded', () => {
-  // El login queda operativo inmediatamente; la carga de datos/red es posterior.
+  // El login queda operativo inmediatamente; precalentamos Render en paralelo.
+  warmupCompraProAuthServer();
   setupLoginHandlers();
   ensureLoginUsers();
 
