@@ -1889,9 +1889,13 @@ function mergeFirebaseState(remote) {
   // todavía no tiene folioState, usamos los campos heredados por compatibilidad.
   const remoteFolioValue = remote?.folioState?.value || d.currentFolio || '';
   const remoteFolioTime = Number(remote?.folioState?.updatedAt || d.currentFolioUpdatedAt) || 0;
-  if (!folioManualOverrideActive && remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
+  if (remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
+    // Un folio remoto con marca de tiempo más reciente debe actualizar
+    // también equipos que anteriormente hicieron un ajuste manual local.
     currentFolio = String(remoteFolioValue);
     currentFolioUpdatedAt = remoteFolioTime;
+    folioManualOverrideActive = false;
+    idbSetMeta('folio_manual_override', false).catch(() => {});
   }
 
   // El sequence nunca puede reemplazar un folio manual más reciente.
@@ -1981,9 +1985,11 @@ async function firebaseConnectRoom() {
 
       const fs = remote?.folioState;
       const fsTime = Number(fs?.updatedAt) || 0;
-      if (!folioManualOverrideActive && fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
         currentFolio = String(fs.value);
         currentFolioUpdatedAt = fsTime;
+        folioManualOverrideActive = false;
+        await idbSetMeta('folio_manual_override', false);
         await idbSetMeta('folio', currentFolio);
         localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
         const fv = document.getElementById('folio-val');
@@ -2002,9 +2008,11 @@ async function firebaseConnectRoom() {
       const initialRemote = snap.val();
       const fs = initialRemote?.folioState;
       const fsTime = Number(fs?.updatedAt) || 0;
-      if (!folioManualOverrideActive && fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
         currentFolio = String(fs.value);
         currentFolioUpdatedAt = fsTime;
+        folioManualOverrideActive = false;
+        await idbSetMeta('folio_manual_override', false);
         await idbSetMeta('folio', currentFolio);
         localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
       }
@@ -6795,21 +6803,22 @@ async function saveFolio() {
     // Escritura directa y atómica del estado del folio. No pasa por
     // broadcastFullSync(), porque una sincronización general antigua podría
     // volver a introducir el folio anterior.
-    const folioDataRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
-    const folioStateRef = firebaseDB.ref(getFirebaseRoomPath() + '/folioState');
+    const roomRef = firebaseDB.ref(getFirebaseRoomPath());
     const now = Date.now();
 
-    await folioDataRef.update({
-      currentFolio: currentFolio,
-      currentFolioUpdatedAt: currentFolioUpdatedAt,
-      folioSequence: sequence
-    });
-    await folioStateRef.set({
-      value: currentFolio,
-      updatedAt: currentFolioUpdatedAt,
-      sequence: sequence,
-      clientId: firebaseClientId,
-      writtenAt: now
+    // Publicar folio, secuencia y marca de tiempo en una sola operación:
+    // ningún equipo podrá leer un estado intermedio con datos contradictorios.
+    await roomRef.update({
+      'data/currentFolio': currentFolio,
+      'data/currentFolioUpdatedAt': currentFolioUpdatedAt,
+      'data/folioSequence': sequence,
+      'folioState': {
+        value: currentFolio,
+        updatedAt: currentFolioUpdatedAt,
+        sequence: sequence,
+        clientId: firebaseClientId,
+        writtenAt: now
+      }
     });
 
     firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, now);
