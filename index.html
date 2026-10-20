@@ -6724,7 +6724,15 @@ function renderVentaItems() {
   if (countEl) countEl.innerHTML = `${ventaItems.length} material(es) <span style="margin:0 6px;">|</span> ${piezas} pieza(s)`;
 }
 
+const _ventaQtyLastClick = Object.create(null);
 function adjustVentaQty(idx, delta) {
+  // Evita que un mismo toque/clic generado dos veces por el navegador
+  // se aplique por duplicado al volver a dibujar los controles.
+  const clickKey = String(idx) + ':' + String(delta);
+  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (_ventaQtyLastClick[clickKey] !== undefined && now - _ventaQtyLastClick[clickKey] < 80) return;
+  _ventaQtyLastClick[clickKey] = now;
+
   const item = ventaItems[idx];
   if (!item) return;
   const cantidadActual = Number(item.cantidad) || 1;
