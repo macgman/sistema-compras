@@ -6,9 +6,12 @@
 <title>COMPRA v3.0.6 · FIREBASE CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://compra-pro-888c9-default-rtdb.firebaseio.com" crossorigin>
+<link rel="preconnect" href="https://compra-pro-security.onrender.com" crossorigin>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
 <!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
@@ -1944,23 +1947,48 @@ async function applyFirebaseSnapshot(snapshotData, showMessage = false) {
   if (showMessage) showToast('Datos sincronizados en vivo');
 }
 
-async function firebaseConnectRoom() {
+let firebaseListeningPath = '';
+let firebaseConnectPromise = null;
+
+// Evita conexiones simultáneas duplicadas (focus + visibilitychange + online...).
+function firebaseConnectRoom() {
+  if (firebaseConnectPromise) return firebaseConnectPromise;
+  firebaseConnectPromise = firebaseConnectRoomInner().finally(() => { firebaseConnectPromise = null; });
+  return firebaseConnectPromise;
+}
+
+async function firebaseConnectRoomInner() {
   if (!initFirebase()) {
     updateCloudBadge('offline', 'Firebase no disponible');
     return false;
   }
 
+  const roomPath = getFirebaseRoomPath();
+  if (!roomPath) {
+    // Sin clave de sala válida NO se debe abrir la raíz de la base de datos.
+    updateCloudBadge('offline', 'Sin sala compartida · Modo local');
+    return false;
+  }
+
   try {
+    // Si ya hay un listener activo en esta misma sala, NO se vuelve a descargar
+    // todo: el SDK de Firebase se reconecta solo; solo se le pide volver en línea.
+    if (firebaseRoomRef && firebaseListeningPath === roomPath) {
+      if (!firebaseConnectionIsUp) {
+        try { firebaseDB.goOnline(); } catch (_) {}
+      }
+      return true;
+    }
+
     updateCloudBadge('connecting', 'Conectando a Firebase...');
 
     if (firebaseRoomRef) {
       try { firebaseRoomRef.off(); } catch (_) {}
     }
+    firebaseListeningPath = '';
 
     // El nodo .info/connected indica la conexión REAL del navegador
-    // con el servicio Realtime Database. Así las dos computadoras
-    // muestran el mismo estado de conexión y no se quedan en
-    // "Conectando..." por depender solamente del listener de datos.
+    // con el servicio Realtime Database.
     const connectionInfoRef = firebaseDB.ref('.info/connected');
     connectionInfoRef.off();
     connectionInfoRef.on('value', (snapshot) => {
@@ -1973,15 +2001,20 @@ async function firebaseConnectRoom() {
       }
     });
 
-    firebaseRoomRef = firebaseDB.ref(getFirebaseRoomPath());
+    firebaseRoomRef = firebaseDB.ref(roomPath);
     firebaseLastRemoteWrite = 0;
+    firebaseListeningPath = roomPath;
+    let firstSnapshot = true;
 
+    // Un solo listener entrega la lectura inicial y los cambios en vivo.
+    // Antes además se esperaba un once('value') (segunda descarga completa) que
+    // dejaba la app esperando indefinidamente si la conexión tardaba.
     firebaseRoomRef.on('value', async (snapshot) => {
+      const isFirst = firstSnapshot;
+      firstSnapshot = false;
       const remote = snapshot.val();
 
       if (!remote) {
-        // Firebase sí está conectado, pero todavía no hay datos publicados
-        // en esta sala. Si existe información local, esta PC la publica.
         updateCloudBadge('online', 'Sala activa · esperando equipo...');
         if (products.length || ventas.length || movimientos.length || users.length) {
           setTimeout(() => broadcastFullSync(true), 300);
@@ -2001,37 +2034,19 @@ async function firebaseConnectRoom() {
         const fv = document.getElementById('folio-val');
         if (fv) fv.textContent = currentFolio;
       }
-      await applyFirebaseSnapshot(remote, true);
+      await applyFirebaseSnapshot(remote, !isFirst);
     }, (error) => {
+      // El listener queda cancelado por Firebase: se libera para poder
+      // volver a registrarlo (por ejemplo, después de iniciar sesión).
+      firebaseListeningPath = '';
       console.error('Firebase Realtime Database:', error);
       updateCloudBadge('offline', 'Error de Firebase: revisa reglas/red');
       showToast('Firebase rechazó la conexión. Revisa las reglas de Realtime Database.', 'error');
     });
 
-    // Lectura inicial. Si existe una sala compartida, se aplica de inmediato.
-    const snap = await firebaseRoomRef.once('value');
-    if (snap.exists()) {
-      const initialRemote = snap.val();
-      const fs = initialRemote?.folioState;
-      const fsTime = Number(fs?.updatedAt) || 0;
-      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
-        currentFolio = String(fs.value);
-        currentFolioUpdatedAt = fsTime;
-        folioManualOverrideActive = false;
-        await idbSetMeta('folio_manual_override', false);
-        await idbSetMeta('folio', currentFolio);
-        localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
-      }
-      await applyFirebaseSnapshot(initialRemote, false);
-    } else {
-      updateCloudBadge('online', 'Sala activa · esperando equipo...');
-      if (products.length || ventas.length || movimientos.length || users.length) {
-        await broadcastFullSync(true);
-      }
-    }
-
     return true;
   } catch (e) {
+    firebaseListeningPath = '';
     console.error('No se pudo conectar a Firebase:', e);
     updateCloudBadge('offline', 'Error de conexión a Firebase');
     showToast('No se pudo conectar con Firebase. Verifica Internet y la configuración de Realtime Database.', 'error');
@@ -2066,6 +2081,10 @@ async function saveCloudRoom() {
 
 function reconnectCloud() {
   firebaseConnectionIsUp = false;
+  try {
+    if (firebaseDB) { firebaseDB.goOffline(); firebaseDB.goOnline(); }
+  } catch (_) {}
+  firebaseListeningPath = ''; // fuerza volver a registrar el listener
   return firebaseConnectRoom();
 }
 
@@ -2621,7 +2640,13 @@ async function init() {
 
   try {
     if (cloudRoomId) {
-      await initPeerNetwork();
+      // La conexión a Firebase se hace en segundo plano: la app (botones,
+      // búsqueda y sesión guardada) ya no espera a la red para quedar lista.
+      updateCloudBadge('connecting', 'Conectando a Firebase...');
+      initPeerNetwork().catch(e => {
+        console.warn('Firebase no conectó al arrancar; se continúa en modo local.', e);
+        updateCloudBadge('offline', 'Modo local - reintentando conexión');
+      });
     } else {
       updateCloudBadge('offline', 'Sin sala compartida · Modo local');
     }
@@ -2807,6 +2832,7 @@ async function attemptLoginMulti() {
 
     sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
     applyUserRole();
+    if (cloudRoomId) { firebaseConnectRoom().catch(() => {}); }
     passEl.value = '';
     userEl.value = '';
     showToast(`Bienvenido/a, ${currentUser.name}`);
@@ -7582,20 +7608,32 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(updateOfflineBann
 // Despertar Render en cuanto se abre COMPRA-PRO, no hasta que el usuario
 // presione Iniciar sesión. En planes que suspenden el servicio, esto permite
 // que el servidor empiece a arrancar mientras el usuario captura sus datos.
-let compraProAuthWarmupStarted = false;
-function warmupCompraProAuthServer() {
-  if (compraProAuthWarmupStarted || typeof fetch !== 'function' || !navigator.onLine) return;
-  compraProAuthWarmupStarted = true;
+let compraProAuthLastWarmup = 0;
+function warmupCompraProAuthServer(force) {
+  if (typeof fetch !== 'function' || !navigator.onLine) return;
+  const now = Date.now();
+  // Render (plan gratis) se duerme tras ~15 min sin tráfico: se repite cada ~8 min.
+  if (!force && now - compraProAuthLastWarmup < 8 * 60 * 1000) return;
+  compraProAuthLastWarmup = now;
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = setTimeout(() => { if (controller) controller.abort(); }, 12000);
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, 60000);
   fetch(COMPRA_PRO_AUTH_API + '/health', {
     method: 'GET',
     cache: 'no-store',
     signal: controller ? controller.signal : undefined
   }).catch(() => {
-    // Es solo precalentamiento: nunca bloquear ni mostrar errores al usuario.
+    // Solo precalentamiento: nunca bloquear ni mostrar errores al usuario.
   }).finally(() => clearTimeout(timer));
 }
+
+// Mantener despierto el servidor mientras la app esté abierta y visible,
+// y despertarlo al volver a la pestaña después de un rato.
+setInterval(() => {
+  if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
+}, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
+});
 
 window.addEventListener('DOMContentLoaded', () => {
   // El login queda operativo inmediatamente; precalentamos Render en paralelo.
