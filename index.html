@@ -6,9 +6,12 @@
 <title>COMPRA v3.0.6 · FIREBASE CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://compra-pro-888c9-default-rtdb.firebaseio.com" crossorigin>
+<link rel="preconnect" href="https://compra-pro-security.onrender.com" crossorigin>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
 <!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
@@ -145,6 +148,12 @@
   .venta-product-key { color: #047857; font-weight: 700; font-size: 0.78rem; margin-top: 3px; display: inline-block; background: #ecfdf5; padding: 1px 5px; border-radius: 4px; }
   .venta-unit-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; padding: 5px 9px; border-radius: 999px; background: #ecfdf5; color: #065f46; font-size: 0.70rem; font-weight: 800; text-transform: uppercase; border: 1px solid #a7f3d0; }
   .venta-qty-input { width: 68px; height: 34px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-weight: 800; text-align: center; font-size: 0.95rem; }
+  /* Control de cantidad: cambios de uno en uno sin usar las flechas nativas */
+  .venta-qty-control { display:flex; align-items:center; justify-content:center; gap:3px; white-space:nowrap; }
+  .venta-qty-btn { width:25px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:6px; background:#f8fafc; color:#166534; font-size:13px; line-height:1; font-weight:700; cursor:pointer; flex:0 0 25px; }
+  .venta-qty-btn:hover { background:#dcfce7; }
+  .venta-qty-btn:active { transform:scale(.96); }
+  .venta-qty-control .venta-qty-input { width:40px; height:28px; padding:3px 2px; font-size:.85rem; }
   .venta-money { font-weight: 800; color: #0f172a; font-size: 0.88rem; white-space: nowrap; }
   .venta-total-bar { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-top: 18px; padding: 16px 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 14px; }
   .venta-summary { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
@@ -1598,6 +1607,9 @@ function updateCloudBadge(state, text) {
 const STORAGE_PREFIX = 'compra_v2_';
 
 let cloudRoomId = localStorage.getItem(STORAGE_PREFIX + 'cloud_room') || '';
+let firebaseConnectionIsUp = false;
+let firebaseReconnectInProgress = false;
+let firebaseLastReconnectAttempt = 0;
 
 // Variables heredadas conservadas para que el resto del programa no tenga
 // que cambiar y para que el reinicio total siga siendo compatible.
@@ -1886,9 +1898,13 @@ function mergeFirebaseState(remote) {
   // todavía no tiene folioState, usamos los campos heredados por compatibilidad.
   const remoteFolioValue = remote?.folioState?.value || d.currentFolio || '';
   const remoteFolioTime = Number(remote?.folioState?.updatedAt || d.currentFolioUpdatedAt) || 0;
-  if (!folioManualOverrideActive && remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
+  if (remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
+    // Un folio remoto con marca de tiempo más reciente debe actualizar
+    // también equipos que anteriormente hicieron un ajuste manual local.
     currentFolio = String(remoteFolioValue);
     currentFolioUpdatedAt = remoteFolioTime;
+    folioManualOverrideActive = false;
+    idbSetMeta('folio_manual_override', false).catch(() => {});
   }
 
   // El sequence nunca puede reemplazar un folio manual más reciente.
@@ -1931,23 +1947,37 @@ async function applyFirebaseSnapshot(snapshotData, showMessage = false) {
   if (showMessage) showToast('Datos sincronizados en vivo');
 }
 
-async function firebaseConnectRoom() {
+let firebaseListeningPath = '';
+let firebaseConnectPromise = null;
+
+// Evita conexiones simultáneas duplicadas (focus + visibilitychange + online...).
+function firebaseConnectRoom() {
+  if (firebaseConnectPromise) return firebaseConnectPromise;
+  firebaseConnectPromise = firebaseConnectRoomInner().finally(() => { firebaseConnectPromise = null; });
+  return firebaseConnectPromise;
+}
+
+async function firebaseConnectRoomInner() {
   if (!initFirebase()) {
     updateCloudBadge('offline', 'Firebase no disponible');
     return false;
   }
 
+  const roomPath = getFirebaseRoomPath();
+  if (!roomPath) {
+    // Sin clave de sala válida NO se debe abrir la raíz de la base de datos.
+    updateCloudBadge('offline', 'Sin sala compartida · Modo local');
+    return false;
+  }
+
   try {
-    // Las reglas seguras requieren una sesión de Firebase Authentication.
-    // No intentar leer la sala antes de que el servidor autentique al usuario.
-    const auth = firebase.auth(firebaseApp);
-    if (!auth.currentUser) {
-      updateCloudBadge('offline', 'Esperando autenticación para conectar');
-      return false;
-    }
-    if (!String(cloudRoomId || '').trim()) {
-      updateCloudBadge('offline', 'Sin sala compartida · Datos locales');
-      return false;
+    // Si ya hay un listener activo en esta misma sala, NO se vuelve a descargar
+    // todo: el SDK de Firebase se reconecta solo; solo se le pide volver en línea.
+    if (firebaseRoomRef && firebaseListeningPath === roomPath) {
+      if (!firebaseConnectionIsUp) {
+        try { firebaseDB.goOnline(); } catch (_) {}
+      }
+      return true;
     }
 
     updateCloudBadge('connecting', 'Conectando a Firebase...');
@@ -1955,15 +1985,15 @@ async function firebaseConnectRoom() {
     if (firebaseRoomRef) {
       try { firebaseRoomRef.off(); } catch (_) {}
     }
+    firebaseListeningPath = '';
 
     // El nodo .info/connected indica la conexión REAL del navegador
-    // con el servicio Realtime Database. Así las dos computadoras
-    // muestran el mismo estado de conexión y no se quedan en
-    // "Conectando..." por depender solamente del listener de datos.
+    // con el servicio Realtime Database.
     const connectionInfoRef = firebaseDB.ref('.info/connected');
     connectionInfoRef.off();
     connectionInfoRef.on('value', (snapshot) => {
       const connected = snapshot.val() === true;
+      firebaseConnectionIsUp = connected;
       if (connected) {
         updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
       } else {
@@ -1971,15 +2001,20 @@ async function firebaseConnectRoom() {
       }
     });
 
-    firebaseRoomRef = firebaseDB.ref(getFirebaseRoomPath());
+    firebaseRoomRef = firebaseDB.ref(roomPath);
     firebaseLastRemoteWrite = 0;
+    firebaseListeningPath = roomPath;
+    let firstSnapshot = true;
 
+    // Un solo listener entrega la lectura inicial y los cambios en vivo.
+    // Antes además se esperaba un once('value') (segunda descarga completa) que
+    // dejaba la app esperando indefinidamente si la conexión tardaba.
     firebaseRoomRef.on('value', async (snapshot) => {
+      const isFirst = firstSnapshot;
+      firstSnapshot = false;
       const remote = snapshot.val();
 
       if (!remote) {
-        // Firebase sí está conectado, pero todavía no hay datos publicados
-        // en esta sala. Si existe información local, esta PC la publica.
         updateCloudBadge('online', 'Sala activa · esperando equipo...');
         if (products.length || ventas.length || movimientos.length || users.length) {
           setTimeout(() => broadcastFullSync(true), 300);
@@ -1989,43 +2024,29 @@ async function firebaseConnectRoom() {
 
       const fs = remote?.folioState;
       const fsTime = Number(fs?.updatedAt) || 0;
-      if (!folioManualOverrideActive && fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
         currentFolio = String(fs.value);
         currentFolioUpdatedAt = fsTime;
+        folioManualOverrideActive = false;
+        await idbSetMeta('folio_manual_override', false);
         await idbSetMeta('folio', currentFolio);
         localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
         const fv = document.getElementById('folio-val');
         if (fv) fv.textContent = currentFolio;
       }
-      await applyFirebaseSnapshot(remote, true);
+      await applyFirebaseSnapshot(remote, !isFirst);
     }, (error) => {
+      // El listener queda cancelado por Firebase: se libera para poder
+      // volver a registrarlo (por ejemplo, después de iniciar sesión).
+      firebaseListeningPath = '';
       console.error('Firebase Realtime Database:', error);
       updateCloudBadge('offline', 'Error de Firebase: revisa reglas/red');
       showToast('Firebase rechazó la conexión. Revisa las reglas de Realtime Database.', 'error');
     });
 
-    // Lectura inicial. Si existe una sala compartida, se aplica de inmediato.
-    const snap = await firebaseRoomRef.once('value');
-    if (snap.exists()) {
-      const initialRemote = snap.val();
-      const fs = initialRemote?.folioState;
-      const fsTime = Number(fs?.updatedAt) || 0;
-      if (!folioManualOverrideActive && fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
-        currentFolio = String(fs.value);
-        currentFolioUpdatedAt = fsTime;
-        await idbSetMeta('folio', currentFolio);
-        localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt));
-      }
-      await applyFirebaseSnapshot(initialRemote, false);
-    } else {
-      updateCloudBadge('online', 'Sala activa · esperando equipo...');
-      if (products.length || ventas.length || movimientos.length || users.length) {
-        await broadcastFullSync(true);
-      }
-    }
-
     return true;
   } catch (e) {
+    firebaseListeningPath = '';
     console.error('No se pudo conectar a Firebase:', e);
     updateCloudBadge('offline', 'Error de conexión a Firebase');
     showToast('No se pudo conectar con Firebase. Verifica Internet y la configuración de Realtime Database.', 'error');
@@ -2059,8 +2080,44 @@ async function saveCloudRoom() {
 }
 
 function reconnectCloud() {
-  firebaseConnectRoom();
+  firebaseConnectionIsUp = false;
+  try {
+    if (firebaseDB) { firebaseDB.goOffline(); firebaseDB.goOnline(); }
+  } catch (_) {}
+  firebaseListeningPath = ''; // fuerza volver a registrar el listener
+  return firebaseConnectRoom();
 }
+
+// En móviles, el navegador puede suspender la conexión de Firebase cuando
+// la pestaña queda en segundo plano. Al volver, reactivar la sala compartida
+// automáticamente sin esperar a que el usuario cierre sesión y entre como admin.
+async function recoverFirebaseConnection(force = false) {
+  if (!cloudRoomId || !initFirebase() || firebaseReconnectInProgress) return;
+  if (!force && firebaseConnectionIsUp) return;
+  const now = Date.now();
+  if (now - firebaseLastReconnectAttempt < 5000) return;
+  firebaseLastReconnectAttempt = now;
+  firebaseReconnectInProgress = true;
+  try {
+    await firebaseConnectRoom();
+  } catch (error) {
+    console.warn('No se pudo recuperar automáticamente Firebase:', error);
+  } finally {
+    firebaseReconnectInProgress = false;
+  }
+}
+
+window.addEventListener('online', () => {
+  setTimeout(() => recoverFirebaseConnection(true), 500);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    setTimeout(() => recoverFirebaseConnection(false), 700);
+  }
+});
+window.addEventListener('focus', () => {
+  setTimeout(() => recoverFirebaseConnection(false), 700);
+});
 
 async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved = false) {
   sanitizeStoredData();
@@ -2581,14 +2638,22 @@ async function init() {
   document.getElementById('folio-val').textContent = currentFolio;
   document.getElementById('cloud-room-input').value = cloudRoomId;
 
-  // No conectar a Firebase durante el arranque: primero debe iniciar sesión.
-  // firebaseConnectRoom() se ejecutará después de signInWithCustomToken().
-  updateCloudBadge(
-    'offline',
-    cloudRoomId
-      ? 'Esperando autenticación para conectar'
-      : 'Sin sala compartida · Modo local'
-  );
+  try {
+    if (cloudRoomId) {
+      // La conexión a Firebase se hace en segundo plano: la app (botones,
+      // búsqueda y sesión guardada) ya no espera a la red para quedar lista.
+      updateCloudBadge('connecting', 'Conectando a Firebase...');
+      initPeerNetwork().catch(e => {
+        console.warn('Firebase no conectó al arrancar; se continúa en modo local.', e);
+        updateCloudBadge('offline', 'Modo local - reintentando conexión');
+      });
+    } else {
+      updateCloudBadge('offline', 'Sin sala compartida · Modo local');
+    }
+  } catch (e) {
+    console.warn('La inicialización de red fallo; se continua en modo local.', e);
+    updateCloudBadge('offline', 'Modo local - sin conexión de red');
+  }
 
   const ventaSearch = document.getElementById('venta-search-prod');
   ventaSearch.addEventListener('keydown', function(e) {
@@ -2704,12 +2769,36 @@ async function attemptLoginMulti() {
 
   let stage = 'server';
   try {
-    showToast('Validando acceso seguro…', 'warning');
-    const response = await fetch(COMPRA_PRO_AUTH_API + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, roomId })
-    });
+    showToast('Conectando con el servidor de acceso… Si estaba inactivo, puede tardar hasta un minuto.', 'warning');
+
+    // Render puede tardar en despertar después de un periodo de inactividad.
+    // Damos tiempo suficiente a cada intento y reintentamos una sola vez
+    // únicamente ante errores de red/tiempo de espera; no repetimos credenciales
+    // si el servidor ya respondió con un error HTTP.
+    let response = null;
+    let lastNetworkError = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = setTimeout(() => { if (controller) controller.abort(); }, 90000);
+      try {
+        response = await fetch(COMPRA_PRO_AUTH_API + '/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, roomId }),
+          signal: controller ? controller.signal : undefined,
+          cache: 'no-store'
+        });
+        clearTimeout(timeoutId);
+        break;
+      } catch (networkError) {
+        clearTimeout(timeoutId);
+        lastNetworkError = networkError;
+        if (attempt >= 2) throw networkError;
+        showToast('El servidor está tardando en responder. Reintentando conexión…', 'warning');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+    }
+    if (!response) throw lastNetworkError || new Error('No hubo respuesta del servidor');
 
     let result = {};
     try { result = await response.json(); } catch (_) {}
@@ -2732,12 +2821,6 @@ async function attemptLoginMulti() {
     const auth = firebase.auth(firebaseApp);
     await auth.signInWithCustomToken(result.token);
 
-    // La sesión ya está autenticada; ahora sí conectar con la sala protegida.
-    const roomConnected = await firebaseConnectRoom();
-    if (!roomConnected) {
-      console.warn('Inicio de sesión correcto, pero no se pudo conectar con la sala Firebase. Revisa las reglas y el identificador de sala.');
-    }
-
     const role = ['admin', 'user', 'folio'].includes(result.user.role)
       ? result.user.role : 'user';
     currentUser = {
@@ -2749,6 +2832,7 @@ async function attemptLoginMulti() {
 
     sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
     applyUserRole();
+    if (cloudRoomId) { firebaseConnectRoom().catch(() => {}); }
     passEl.value = '';
     userEl.value = '';
     showToast(`Bienvenido/a, ${currentUser.name}`);
@@ -2757,7 +2841,7 @@ async function attemptLoginMulti() {
     console.error('COMPRA-PRO login failure stage=' + stage + ' code=' + code + ' name=' + String(error?.name || 'Error'));
     let message;
     if (stage === 'server') {
-      message = 'No se pudo comunicar con el servidor de acceso. Comprueba la conexión y la configuración CORS de Render.';
+      message = 'No se pudo conectar con el servidor de acceso después de dos intentos. Espera un minuto y vuelve a intentarlo; si persiste, revisa el servicio y los registros de Render.';
     } else if (code === 'auth/invalid-custom-token' || code === 'auth/custom-token-mismatch') {
       message = 'El servidor respondió, pero Firebase rechazó el token. El proyecto de Firebase del servidor no coincide o la credencial no es válida.';
     } else if (code === 'auth/operation-not-allowed') {
@@ -3731,10 +3815,11 @@ async function reserveNextSharedFolio(requestedFolio, token) {
   const requestedNumber = getFolioNumber(requestedFolio);
   if (!requestedNumber) return null;
 
-  // Referencia local: el contador remoto jamás debería estar muy por encima
-  // del folio mostrado y del mayor folio realmente registrado. Si lo está,
-  // quedó inflado por intentos fallidos (ej. F-431) y se autocorrige.
-  const localCeiling = Math.max(requestedNumber, getHighestActiveFolioNumber() + 1);
+  // El folio visible/solicitado es la autoridad del consecutivo. No usar
+  // el máximo histórico como referencia: pueden existir registros antiguos
+  // (por ejemplo F-431) aunque el consecutivo actual sea F-204. Usar el
+  // historial aquí provoca que la reserva salte indebidamente a F-431.
+  const localCeiling = requestedNumber;
   const MAX_GAP = 25;
 
   try {
@@ -3828,9 +3913,10 @@ async function prepareFolioForNewVenta(capturedFolio) {
   const reserved = await reserveSharedFolioWithTimeout(normalizedCurrent, 5000);
   if (reserved) return reserved;
 
-  // Respaldo local cuando Firebase está desconectado o tarda demasiado:
-  // jamás baja del máximo existente y permite finalizar la operación.
-  const nextNumber = Math.max(getFolioNumber(normalizedCurrent), getHighestActiveFolioNumber() + 1);
+  // Respaldo local cuando Firebase está desconectado o tarda demasiado.
+  // Mantiene el consecutivo mostrado; el historial se usa para detectar
+  // duplicados, no para saltar el contador a un folio antiguo como F-431.
+  const nextNumber = Math.max(1, getFolioNumber(normalizedCurrent));
   return buildFolioFromNumber(nextNumber, normalizedCurrent);
 }
 
@@ -6507,7 +6593,7 @@ async function _saveValeManualCore() {
       ? fixTextForExcel(currentFolio)
       : await reserveSharedFolioWithTimeout(currentFolio, 5000);
     folio = reservedValeFolio || buildFolioFromNumber(
-      Math.max(getFolioNumber(currentFolio), getHighestActiveFolioNumber() + 1),
+      Math.max(1, getFolioNumber(currentFolio)),
       currentFolio
     );
 
@@ -6646,7 +6732,11 @@ function renderVentaItems() {
             <small class="venta-product-key">${esc(i.clave)}</small>
           </div>
           <div><span class="venta-unit-badge">${esc(unidad)}</span></div>
-          <div><input class="venta-qty-input" type="number" value="${i.cantidad}" min="1" onchange="updateVentaQty(${idx}, this.value)"></div>
+          <div class="venta-qty-control">
+            <button type="button" class="venta-qty-btn" aria-label="Disminuir cantidad" title="Disminuir en uno" onclick="adjustVentaQty(${idx}, -1)">−</button>
+            <input class="venta-qty-input" type="number" value="${i.cantidad}" min="1" step="1" aria-label="Cantidad" onchange="updateVentaQty(${idx}, this.value)">
+            <button type="button" class="venta-qty-btn" aria-label="Aumentar cantidad" title="Aumentar en uno" onclick="adjustVentaQty(${idx}, 1)">+</button>
+          </div>
           <div class="venta-money">$${fmt(i.precio)}</div>
           <div class="venta-money">$${fmt(i.cantidad*i.precio)}</div>
           <button class="btn btn-danger btn-sm" onclick="ventaItems.splice(${idx},1); renderVentaItems();"><i class="fas fa-trash"></i></button>
@@ -6658,6 +6748,28 @@ function renderVentaItems() {
   document.getElementById('venta-total-val').textContent = '$' + fmt(total);
   const countEl = document.getElementById('venta-count-val');
   if (countEl) countEl.innerHTML = `${ventaItems.length} material(es) <span style="margin:0 6px;">|</span> ${piezas} pieza(s)`;
+}
+
+const _ventaQtyLastClick = Object.create(null);
+function adjustVentaQty(idx, delta) {
+  // Evita que un mismo toque/clic generado dos veces por el navegador
+  // se aplique por duplicado al volver a dibujar los controles.
+  const clickKey = String(idx) + ':' + String(delta);
+  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (_ventaQtyLastClick[clickKey] !== undefined && now - _ventaQtyLastClick[clickKey] < 80) return;
+  _ventaQtyLastClick[clickKey] = now;
+
+  const item = ventaItems[idx];
+  if (!item) return;
+  const cantidadActual = Number(item.cantidad) || 1;
+  const nuevaCantidad = cantidadActual + delta;
+  if (nuevaCantidad < 1) return;
+  const disponible = getStockDisponibleParaVenta(item.productId);
+  if (nuevaCantidad > disponible) {
+    showToast('Stock insuficiente', 'error');
+    return;
+  }
+  updateVentaQty(idx, nuevaCantidad);
 }
 
 function updateVentaQty(idx, val) {
@@ -6749,21 +6861,22 @@ async function saveFolio() {
     // Escritura directa y atómica del estado del folio. No pasa por
     // broadcastFullSync(), porque una sincronización general antigua podría
     // volver a introducir el folio anterior.
-    const folioDataRef = firebaseDB.ref(getFirebaseRoomPath() + '/data');
-    const folioStateRef = firebaseDB.ref(getFirebaseRoomPath() + '/folioState');
+    const roomRef = firebaseDB.ref(getFirebaseRoomPath());
     const now = Date.now();
 
-    await folioDataRef.update({
-      currentFolio: currentFolio,
-      currentFolioUpdatedAt: currentFolioUpdatedAt,
-      folioSequence: sequence
-    });
-    await folioStateRef.set({
-      value: currentFolio,
-      updatedAt: currentFolioUpdatedAt,
-      sequence: sequence,
-      clientId: firebaseClientId,
-      writtenAt: now
+    // Publicar folio, secuencia y marca de tiempo en una sola operación:
+    // ningún equipo podrá leer un estado intermedio con datos contradictorios.
+    await roomRef.update({
+      'data/currentFolio': currentFolio,
+      'data/currentFolioUpdatedAt': currentFolioUpdatedAt,
+      'data/folioSequence': sequence,
+      'folioState': {
+        value: currentFolio,
+        updatedAt: currentFolioUpdatedAt,
+        sequence: sequence,
+        clientId: firebaseClientId,
+        writtenAt: now
+      }
     });
 
     firebaseLastRemoteWrite = Math.max(firebaseLastRemoteWrite, now);
@@ -7492,8 +7605,39 @@ setInterval(updateOfflineBanner, 3000);
 document.addEventListener('DOMContentLoaded', () => setTimeout(updateOfflineBanner, 1500));
 
 
+// Despertar Render en cuanto se abre COMPRA-PRO, no hasta que el usuario
+// presione Iniciar sesión. En planes que suspenden el servicio, esto permite
+// que el servidor empiece a arrancar mientras el usuario captura sus datos.
+let compraProAuthLastWarmup = 0;
+function warmupCompraProAuthServer(force) {
+  if (typeof fetch !== 'function' || !navigator.onLine) return;
+  const now = Date.now();
+  // Render (plan gratis) se duerme tras ~15 min sin tráfico: se repite cada ~8 min.
+  if (!force && now - compraProAuthLastWarmup < 8 * 60 * 1000) return;
+  compraProAuthLastWarmup = now;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, 60000);
+  fetch(COMPRA_PRO_AUTH_API + '/health', {
+    method: 'GET',
+    cache: 'no-store',
+    signal: controller ? controller.signal : undefined
+  }).catch(() => {
+    // Solo precalentamiento: nunca bloquear ni mostrar errores al usuario.
+  }).finally(() => clearTimeout(timer));
+}
+
+// Mantener despierto el servidor mientras la app esté abierta y visible,
+// y despertarlo al volver a la pestaña después de un rato.
+setInterval(() => {
+  if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
+}, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
+});
+
 window.addEventListener('DOMContentLoaded', () => {
-  // El login queda operativo inmediatamente; la carga de datos/red es posterior.
+  // El login queda operativo inmediatamente; precalentamos Render en paralelo.
+  warmupCompraProAuthServer();
   setupLoginHandlers();
   ensureLoginUsers();
 
