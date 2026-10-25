@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>COMPRA v3.0.6 · FIREBASE CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
+<title>COMPRA v3.0.7 · FIREBASE + EXCEL CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
@@ -4653,26 +4653,43 @@ function f361ModifyWorkbookXml(xml,v,extraRows=0){
 
 function f361ModifyDrawingXml(xml,extraRows=0){
   const delta=Number(extraRows)||0;
-  if(!delta) return xml;
-  // El cuadro de firmas de la plantilla está anclado entre las filas 21 y 24.
-  // Lo movemos exactamente el mismo número de renglones que creció la tabla.
-  let out=String(xml);
-  const reFrom=/<xdr:twoCellAnchor\b[\s\S]*?<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>[\s\S]*?<xdr:rowOff>[\s\S]*?<\/xdr:rowOff>[\s\S]*?<\/xdr:from>[\s\S]*?<xdr:to>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/;
-  const m=out.match(reFrom);
-  if(m){
-    const a=Number(m[1]), b=Number(m[2]);
-    const block=m[0].replace(
-      new RegExp(`<xdr:row>${a}</xdr:row>`),
-      `<xdr:row>${a+delta}</xdr:row>`
-    ).replace(
-      new RegExp(`<xdr:row>${b}</xdr:row>`),
-      `<xdr:row>${b+delta}</xdr:row>`
-    );
-    out=out.replace(m[0],block);
-  }
-  return out;
-}
+  if(!delta) return String(xml);
 
+  // IMPORTANTE: la plantilla contiene dos dibujos: el logo y el cuadro de firmas.
+  // Solo debemos mover el cuadro de firmas. La versión anterior modificaba las
+  // filas con dos reemplazos consecutivos; cuando la fila inicial + delta
+  // coincidía con la fila final original, el segundo reemplazo alteraba la fila
+  // equivocada y podía dejar un anclaje inválido (from.row > to.row). Excel
+  // entonces mostraba: "Registros reparados: Dibujo ... drawing1.xml".
+  const parser=new DOMParser();
+  const doc=parser.parseFromString(String(xml),'application/xml');
+  if(doc.getElementsByTagName('parsererror').length) throw new Error('No se pudo leer drawing1.xml de la plantilla F-361');
+
+  const xdr='http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
+  const anchors=Array.from(doc.getElementsByTagNameNS(xdr,'twoCellAnchor'));
+  let moved=false;
+
+  for(const anchor of anchors){
+    const text=String(anchor.textContent||'');
+    if(!/ENTREGADO\s*:/i.test(text)) continue;
+
+    const from=anchor.getElementsByTagNameNS(xdr,'from')[0];
+    const to=anchor.getElementsByTagNameNS(xdr,'to')[0];
+    const fromRow=from?.getElementsByTagNameNS(xdr,'row')[0];
+    const toRow=to?.getElementsByTagNameNS(xdr,'row')[0];
+    if(!fromRow || !toRow) continue;
+
+    const a=Number(fromRow.textContent)||0;
+    const b=Number(toRow.textContent)||0;
+    fromRow.textContent=String(a+delta);
+    toRow.textContent=String(b+delta);
+    moved=true;
+    break;
+  }
+
+  if(!moved) return String(xml);
+  return new XMLSerializer().serializeToString(doc);
+}
 
 function f361MergeCells(doc, ref){
   const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -5079,7 +5096,7 @@ function buildF361LegacyExcel(v) {
   <h2>COMPRA Pro</h2>
   <h3>Mario Alberto Chable García</h3>
   <p>Lic. en Informática · Desarrollador de software</p>
-  <span class="dev-version">VERSIÓN 3.0.6 · 2026</span>
+  <span class="dev-version">VERSIÓN 3.0.7 · 2026</span>
   <div class="dev-feature-grid">
     <span>📦 Inventario</span>
     <span>🧾 Compras</span>
