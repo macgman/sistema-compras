@@ -2841,13 +2841,30 @@ async function attemptLoginMulti() {
     console.error('COMPRA-PRO login failure stage=' + stage + ' code=' + code + ' name=' + String(error?.name || 'Error'));
     let message;
     if (stage === 'server') {
-      message = 'No se pudo conectar con el servidor de acceso después de dos intentos. Espera un minuto y vuelve a intentarlo; si persiste, revisa el servicio y los registros de Render.';
+      // Render gratis se duerme 15 min sin uso - primer arranque tarda 50-60 seg
+      message = 'El servidor de acceso está despertando (Render gratis se duerme). Abre https://compra-pro-security.onrender.com/health en otra pestaña, espera 1 minuto y vuelve a intentar. Si persiste, revisa Render Dashboard > Logs.';
+      // Intento de emergencia local si el servidor no responde
+      try {
+        const localHash = await hashSHA256(password);
+        const localUsers = [
+          { id: 1, username: 'admin', passHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Administrador Principal (Local)', role: 'admin' },
+          { id: 2, username: 'operador', passHash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', name: 'Operador General (Local)', role: 'user' }
+        ];
+        const found = localUsers.find(u => u.username === username && u.passHash === localHash);
+        if (found) {
+          currentUser = { id: found.id, role: found.role, name: found.name + ' - MODO EMERGENCIA', username: found.username };
+          sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
+          applyUserRole();
+          showToast('⚠️ Entraste en MODO EMERGENCIA local porque el servidor está dormido. Sincronización desactivada hasta que despierte.', 'warning');
+          return;
+        }
+      } catch(e){}
     } else if (code === 'auth/invalid-custom-token' || code === 'auth/custom-token-mismatch') {
-      message = 'El servidor respondió, pero Firebase rechazó el token. El proyecto de Firebase del servidor no coincide o la credencial no es válida.';
+      message = 'El servidor respondió, pero Firebase rechazó el token. Revisa en Render que FIREBASE_PROJECT_ID sea compra-pro-888c9.';
     } else if (code === 'auth/operation-not-allowed') {
-      message = 'Firebase rechazó el inicio con token personalizado. Hay que revisar la configuración del proyecto.';
+      message = 'Firebase rechazó el inicio con token. Ve a Firebase Console > Authentication > Sign-in method > habilita Custom Token.';
     } else if (code === 'auth/network-request-failed') {
-      message = 'El servidor validó la solicitud, pero el navegador no pudo terminar la sesión con Firebase. Revisa Internet o abre la aplicación desde una dirección HTTPS.';
+      message = 'El servidor validó, pero el navegador no pudo conectar a Firebase. Asegúrate de usar https://macgman.github.io/sistema-compras/ y tener agregado macgman.github.io en Firebase > Authorized domains.';
     } else {
       message = 'El servidor respondió, pero Firebase no pudo completar la sesión (' + (code || 'error desconocido') + '). Revisa los registros de Render.';
     }
@@ -7631,7 +7648,7 @@ function warmupCompraProAuthServer(force) {
 // y despertarlo al volver a la pestaña después de un rato.
 setInterval(() => {
   if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
-}, 10 * 60 * 1000);
+}, 4 * 60 * 1000); // Ping cada 4 min para evitar que Render se duerma en plan gratis
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') warmupCompraProAuthServer(false);
 });
