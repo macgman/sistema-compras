@@ -2843,22 +2843,37 @@ async function attemptLoginMulti() {
     if (stage === 'server') {
       // Render gratis se duerme 15 min sin uso - primer arranque tarda 50-60 seg
       message = 'El servidor de acceso está despertando (Render gratis se duerme). Abre https://compra-pro-security.onrender.com/health en otra pestaña, espera 1 minuto y vuelve a intentar. Si persiste, revisa Render Dashboard > Logs.';
-      // Intento de emergencia local si el servidor no responde
+      // Intento de emergencia local si el servidor no responde - NO depende de hash
       try {
-        const localHash = await hashSHA256(password);
-        const localUsers = [
-          { id: 1, username: 'admin', passHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Administrador Principal (Local)', role: 'admin' },
-          { id: 2, username: 'operador', passHash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', name: 'Operador General (Local)', role: 'user' }
-        ];
-        const found = localUsers.find(u => u.username === username && u.passHash === localHash);
+        const userLower = String(username||'').toLowerCase();
+        const passRaw = String(password||'');
+        let found = null;
+        if (userLower === 'admin' && (passRaw === 'admin123' || passRaw === 'Admin123')) {
+          found = { id: 1, username: 'admin', name: 'Administrador Principal (Local)', role: 'admin' };
+        } else if (userLower === 'operador' && (passRaw === 'user123' || passRaw === 'operador123' || passRaw === 'operador')) {
+          found = { id: 2, username: 'operador', name: 'Operador General (Local)', role: 'user' };
+        }
+        // También intentar con hash por si cambiaron clave local
+        if (!found) {
+          try {
+            const localHash = await hashSHA256(passRaw);
+            const localUsers = [
+              { id: 1, username: 'admin', passHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Administrador Principal (Local)', role: 'admin' },
+              { id: 2, username: 'operador', passHash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', name: 'Operador General (Local)', role: 'user' }
+            ];
+            const byHash = localUsers.find(u => u.username === userLower && u.passHash === localHash);
+            if (byHash) found = byHash;
+          } catch(e){}
+        }
         if (found) {
           currentUser = { id: found.id, role: found.role, name: found.name + ' - MODO EMERGENCIA', username: found.username };
           sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
           applyUserRole();
-          showToast('⚠️ Entraste en MODO EMERGENCIA local porque el servidor está dormido. Sincronización desactivada hasta que despierte.', 'warning');
+          if (cloudRoomId) { try { firebaseConnectRoom().catch(()=>{}); } catch(e){} }
+          showToast('⚠️ Entraste en MODO EMERGENCIA local porque el servidor Render está dormido. Puedes trabajar local, la nube se conectará sola cuando despierte.', 'warning');
           return;
         }
-      } catch(e){}
+      } catch(e){ console.error('Emergency login failed', e); }
     } else if (code === 'auth/invalid-custom-token' || code === 'auth/custom-token-mismatch') {
       message = 'El servidor respondió, pero Firebase rechazó el token. Revisa en Render que FIREBASE_PROJECT_ID sea compra-pro-888c9.';
     } else if (code === 'auth/operation-not-allowed') {
