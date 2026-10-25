@@ -9,9 +9,9 @@
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://compra-pro-888c9-default-rtdb.firebaseio.com" crossorigin>
 <link rel="preconnect" href="https://compra-pro-security.onrender.com" crossorigin>
-<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
@@ -1626,18 +1626,18 @@ let products = [], ventas = [], movimientos = [], valesManuales = [], valesInven
 let folioManualOverrideActive = false;
 
 // Usuarios base: el inicio de sesión no depende de IndexedDB ni de la red.
-const DEFAULT_USERS = [
-  { id: 1, username: 'admin', passHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Administrador Principal', role: 'admin', active: true, updatedAt: 0 },
-  { id: 2, username: 'operador', passHash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', name: 'Operador General', role: 'user', active: true, updatedAt: 0 }
-];
+const DEFAULT_USERS = [];
+// Usuarios por defecto eliminados por seguridad - ahora la autenticación se hace en el servidor compra-pro-security.onrender.com
+// Los usuarios se cargan desde Firebase Realtime Database de forma segura
 // Los usuarios predeterminados no se marcan como modificados al abrir
 // una computadora nueva. Esto evita que una copia local con admin123/user123
 // pueda competir contra una contraseña que ya fue cambiada en otra PC.
 let users = DEFAULT_USERS.map(u => ({...u}));
 
 function ensureLoginUsers() {
-  if (!Array.isArray(users) || users.length === 0) {
-    users = DEFAULT_USERS.map(u => ({...u}));
+  // Ya no creamos usuarios locales por seguridad. Los usuarios vienen del servidor.
+  if (!Array.isArray(users)) {
+    users = [];
   }
 }
 
@@ -2866,8 +2866,9 @@ function applyUserRole() {
   showSection('dashboard');
 }
 
-function logout() {
-  sessionStorage.removeItem(STORAGE_PREFIX + 'session');
+async function logout() {
+  try { if (typeof firebase !== 'undefined' && firebase.auth && firebaseApp) { await firebase.auth(firebaseApp).signOut(); } } catch(e) { console.warn('Error al cerrar sesión Firebase', e); }
+  try { sessionStorage.removeItem(STORAGE_PREFIX + 'session'); } catch(e){}
   location.reload();
 }
 
@@ -7491,7 +7492,7 @@ async function exportSelectedReport() {
 
 // AUXILIARES
 function fmt(n) { return Number(n||0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function stockBadge(q) { return `<span class="badge ${q<=0?'badge-zero':q<=5?'badge-critical':'badge-ok'}">${q}</span>`; }
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
