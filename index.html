@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>COMPRA v3.0.7 · FIREBASE + EXCEL CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
@@ -543,6 +543,171 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
 @media(max-width:560px){.f361-period-toggle{grid-template-columns:1fr}}
 </style>
 
+<meta name="description" content="COMPRA: sistema web de inventario, compras, kardex y reportes en tiempo real.">
+<meta name="theme-color" content="#053a2c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23047857'/%3E%3Cpath d='M16 26l16-8 16 8v18l-16 8-16-8z' fill='none' stroke='%23ecfdf5' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M16 26l16 8 16-8M32 34v18' stroke='%23ecfdf5' stroke-width='4' fill='none'/%3E%3C/svg%3E">
+<style id="pro-ui">
+/* ===== COMPRA · capa de presentación profesional (no altera la lógica) ===== */
+:root{
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --line:#e2e8f0; --line-2:#eef2f6;
+  --brand:#047857; --brand-deep:#053a2c; --brand-soft:#ecfdf5; --brand-ring:rgba(5,150,105,.22);
+  --surface:#ffffff; --canvas:#f4f6f8;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --sh-1:0 1px 2px rgba(15,23,42,.05),0 1px 3px rgba(15,23,42,.06);
+  --sh-2:0 4px 14px rgba(15,23,42,.07),0 2px 4px rgba(15,23,42,.04);
+  --sh-3:0 24px 60px -12px rgba(15,23,42,.35);
+  --sidebar-w:264px;
+  --font:'Inter','Segoe UI Variable','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{font-family:var(--font)!important;background:var(--canvas)!important;color:var(--ink);line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:'tnum' 1,'cv11' 1}
+::selection{background:#a7f3d0;color:#022c22}
+:focus-visible{outline:3px solid var(--brand-ring);outline-offset:2px;border-radius:6px}
+button,.btn,select,input,textarea{font-family:inherit}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8;background-clip:content-box;border:2px solid transparent}
+
+/* --- Barra lateral --- */
+#sidebar{width:var(--sidebar-w)!important;background:linear-gradient(180deg,#053a2c 0%,#042f24 100%)!important;
+  box-shadow:1px 0 0 rgba(255,255,255,.04),8px 0 30px rgba(2,44,34,.18)!important;transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+#sidebar .logo{padding:22px 22px 18px!important;border-bottom:1px solid rgba(255,255,255,.07)!important}
+#sidebar .logo h1{font-size:1.28rem!important;letter-spacing:.01em;color:#ecfdf5!important}
+#sidebar .logo h1 i{width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#10b981,#047857);color:#fff;font-size:.95rem;box-shadow:0 4px 12px rgba(16,185,129,.35)}
+#sidebar .logo-sub{color:#86efac!important;opacity:.85;font-weight:600}
+#sidebar nav{padding:10px 12px 14px!important}
+#sidebar nav .nav-group{margin:16px 12px 6px;font-size:.68rem;font-weight:700;letter-spacing:.09em;color:rgba(167,243,208,.5);text-transform:uppercase}
+#sidebar nav .nav-group:first-child{margin-top:6px}
+#sidebar nav a{border-left:0!important;border-radius:10px!important;padding:10px 12px!important;margin:2px 0;gap:12px!important;
+  font-size:.9rem!important;color:#b6e8cf!important;position:relative;font-weight:500!important}
+#sidebar nav a i{width:20px;text-align:center;font-size:.95rem;opacity:.9}
+#sidebar nav a:hover{background:rgba(255,255,255,.07)!important;color:#fff!important}
+#sidebar nav a.active{background:rgba(52,211,153,.16)!important;color:#fff!important;font-weight:600!important}
+#sidebar nav a.active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:4px;border-radius:0 4px 4px 0;background:#34d399}
+#sidebar nav a.active i{color:#6ee7b7;opacity:1}
+
+/* --- Estructura principal y barra superior --- */
+#main{margin-left:var(--sidebar-w)!important;width:calc(100% - var(--sidebar-w))!important;min-width:0}
+#topbar{background:rgba(255,255,255,.88)!important;backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line)!important;padding:12px 32px!important;gap:16px;min-height:64px}
+#topbar h2{font-size:1.2rem!important;letter-spacing:-.015em;color:var(--ink)!important}
+#topbar h2 i{width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;
+  background:var(--brand-soft);color:var(--brand);font-size:.9rem}
+#content{padding:28px 32px 36px!important;max-width:1680px;width:100%;margin:0 auto}
+.menu-toggle{display:none;border:1px solid var(--line);background:#fff;width:40px;height:40px;border-radius:10px;cursor:pointer;color:var(--ink-2);
+  align-items:center;justify-content:center;font-size:1rem;flex:none;box-shadow:var(--sh-1)}
+.menu-toggle:hover{background:#f8fafc}
+.sidebar-scrim{display:none;position:fixed;inset:0;background:rgba(2,20,15,.55);z-index:90;backdrop-filter:blur(2px);opacity:0;transition:opacity .25s}
+
+/* --- Estado de red y folio --- */
+.cloud-status{background:#fff!important;border:1px solid var(--line)!important;color:var(--ink-2)!important;box-shadow:var(--sh-1);font-weight:600!important}
+.cloud-status:hover{border-color:#a7f3d0!important;background:var(--brand-soft)!important}
+#folio-display{background:#fff!important;border:1px solid var(--line)!important;color:var(--ink)!important;border-radius:999px!important;box-shadow:var(--sh-1);
+  font-size:.82rem;display:flex;align-items:center;gap:4px}
+#folio-display #folio-val{font-variant-numeric:tabular-nums;color:var(--brand);font-weight:800}
+
+/* --- Tarjetas, estadísticas y tablas --- */
+.stats-grid{gap:18px!important}
+.stat-card{border-radius:var(--r-lg)!important;border:1px solid var(--line)!important;box-shadow:var(--sh-1)!important;padding:20px 22px!important;transition:box-shadow .2s,border-color .2s}
+.stat-card:hover{box-shadow:var(--sh-2)!important;border-color:#cfe9dd!important}
+.stat-card .label{font-size:.76rem!important;letter-spacing:.02em;text-transform:none!important;color:var(--muted)!important;font-weight:600!important}
+.stat-card .value{font-size:2rem!important;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.table-wrap{border-radius:var(--r-lg)!important;border:1px solid var(--line)!important;box-shadow:var(--sh-1)!important;overflow:auto!important;max-width:100%}
+thead th{position:sticky;top:0;z-index:2;background:#f8fafc!important;font-size:.72rem!important;color:var(--muted)!important;letter-spacing:.05em!important;padding:12px 16px!important;white-space:nowrap}
+tbody td{padding:12px 16px!important;border-bottom:1px solid var(--line-2)}
+tbody tr:nth-child(even){background:rgba(248,250,252,.55)}
+tbody tr:hover{background:#f0fdf7!important}
+.clave-cell{font-family:ui-monospace,'SF Mono','Cascadia Mono','Consolas',monospace!important;font-size:.9rem!important;background:var(--brand-soft)!important;border-color:#bbf7d0!important}
+.badge{letter-spacing:.01em}
+.venta-card,.vale-manual-card{border-radius:var(--r-lg)!important;box-shadow:var(--sh-1)!important}
+
+/* --- Controles --- */
+.toolbar{gap:10px!important;padding:12px;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-1);margin-bottom:20px!important}
+.search-box input,select,input[type="date"],.form-group input,.form-group select,.form-group textarea{border-color:#d7dee6!important;border-radius:10px!important;transition:border-color .15s,box-shadow .15s}
+.search-box input:hover,select:hover,input[type="date"]:hover{border-color:#b7c3cf!important}
+.search-box input:focus,select:focus,input[type="date"]:focus,.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--brand)!important;box-shadow:0 0 0 4px var(--brand-ring)!important}
+.btn{border-radius:10px!important;font-weight:600!important;letter-spacing:.005em;transition:background .15s,box-shadow .15s,transform .08s,border-color .15s!important}
+.btn-primary,.btn-success{background:linear-gradient(180deg,#059669,#047857)!important;box-shadow:0 1px 2px rgba(4,120,87,.35),inset 0 1px 0 rgba(255,255,255,.14)}
+.btn-primary:hover,.btn-success:hover{background:linear-gradient(180deg,#047857,#065f46)!important}
+.btn-outline{border-color:#d7dee6!important}
+.btn[disabled],.btn:disabled{opacity:.55;cursor:not-allowed}
+.form-group label{text-transform:none!important;letter-spacing:0!important;font-size:.8rem!important;color:var(--ink-2)!important;font-weight:600!important}
+
+/* --- Modales y avisos --- */
+.modal-overlay{background:rgba(6,24,19,.62)!important;backdrop-filter:blur(6px)!important}
+.modal{border-radius:20px!important;box-shadow:var(--sh-3)!important;padding:30px!important}
+.modal-header h3,.modal-header h2{letter-spacing:-.015em}
+.close-btn{width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;transition:background .15s}
+.close-btn:hover{background:#f1f5f9;color:var(--ink)}
+#toast{border-radius:14px!important;box-shadow:0 12px 32px rgba(15,23,42,.28)!important;font-weight:600!important}
+#offline-banner{font-weight:600}
+
+/* --- Inicio de sesión --- */
+.login-card{border-radius:26px!important;box-shadow:0 30px 80px rgba(0,0,0,.4)!important;max-width:calc(100vw - 32px)}
+.login-input{border:1.5px solid #cbd5e1!important;border-radius:12px!important;transition:border-color .15s,box-shadow .15s}
+.login-input:hover{border-color:#94a3b8!important}
+.login-input:focus{border-color:var(--brand)!important;box-shadow:0 0 0 4px var(--brand-ring)!important}
+
+/* --- Pie de página --- */
+.app-footer{margin-top:auto;padding:18px 32px;border-top:1px solid var(--line);background:#fff;display:flex;flex-wrap:wrap;gap:8px 24px;
+  align-items:center;justify-content:space-between;font-size:.78rem;color:var(--muted)}
+.app-footer b{color:var(--ink-2);font-weight:700}
+.app-footer .app-footer-ver{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-weight:700}
+
+/* --- Adaptable: tablet y móvil --- */
+@media (max-width:1024px){
+  .menu-toggle{display:inline-flex}
+  #sidebar{transform:translateX(-102%);width:min(300px,86vw)!important;z-index:120;box-shadow:none!important;visibility:hidden;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s .28s}
+  html.nav-open #sidebar{transform:none;visibility:visible;box-shadow:var(--sh-3)!important;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
+  html.nav-open{overflow:hidden}
+  html.nav-open .sidebar-scrim{display:block;opacity:1}
+  #main{margin-left:0!important;width:100%!important}
+  #topbar{padding:10px 16px!important}
+  #content{padding:18px 16px 28px!important}
+  .app-footer{padding:16px}
+}
+@media (max-width:720px){
+  #topbar{flex-wrap:wrap}
+  #topbar h2{font-size:1.05rem!important}
+  #topbar h2 i{display:none}
+  .cloud-status #cloud-status-text{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .toolbar{padding:10px}
+  .toolbar .search-box{min-width:100%!important}
+  .toolbar select,.toolbar .btn{flex:1 1 calc(50% - 10px)}
+  .form-grid{grid-template-columns:1fr!important}
+  .modal{padding:22px 18px!important;width:94%!important}
+  #toast{left:16px;right:16px;bottom:16px!important}
+  .stat-card .value{font-size:1.65rem!important}
+}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+@media print{.menu-toggle,.sidebar-scrim,.app-footer{display:none!important}#main{margin-left:0!important;width:100%!important}}
+
+/* --- Ajustes finos --- */
+.stats-grid{background:transparent!important;backdrop-filter:none!important;border:0!important;box-shadow:none!important}
+.stats-grid .stat-card{background:#fff}
+#offline-banner:not(.show){box-shadow:none!important}
+.dev-sidebar-meta{display:none!important}
+.dev-sidebar-footer{padding-bottom:12px!important}
+@media (max-height:760px){#sidebar nav a{padding:8px 12px!important}#sidebar .logo{padding:14px 22px 12px!important}}
+@media (max-width:1024px){
+  #offline-banner{left:0!important}
+  #content::before{left:50%!important;width:min(420px,80vw)!important;height:min(420px,80vw)!important}
+}
+
+/* --- Ventas por material: cuadro de descripción y lista --- */
+#section-ventas-material .toolbar{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;position:relative;z-index:5}
+#vm-product-select{flex:1.5 1 260px;min-width:0!important;max-width:100%;text-overflow:ellipsis}
+.vm-desc-box{flex:1 1 100%;min-width:0;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:12px 16px}
+.vm-desc-box.is-general{background:#f8fafc;border-color:var(--line)}
+.vm-desc-title{font-size:.76rem;font-weight:700;color:var(--brand);margin-bottom:4px}
+.vm-desc-box.is-general .vm-desc-title{color:var(--muted)}
+.vm-desc-text{font-size:1rem;font-weight:700;color:var(--ink);line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+.vm-desc-meta{margin-top:6px;font-size:.8rem;color:var(--ink-2);font-weight:600;white-space:pre-wrap}
+.vm-desc-meta:empty{display:none}
+</style>
+
 </head>
 <body>
 
@@ -594,7 +759,7 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
         <small><i class="fas fa-code" style="margin-right:4px;"></i>Creador y desarrollador de PROGRAMA COMPRA</small>
       </div>
     </div>
-    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.6</div>
+    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.7</div>
   </div>
 </div>
 
@@ -605,14 +770,18 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
     <div class="logo-sub"><i class="fas fa-globe"></i> Red en Tiempo Real</div>
   </div>
   <nav>
+    <div class="nav-group">General</div>
     <a class="active" onclick="showSection('dashboard')" id="nav-dashboard"><i class="fas fa-chart-pie"></i><span>Dashboard</span></a>
+    <div class="nav-group">Inventario</div>
     <a onclick="showSection('inventario')" id="nav-inventario"><i class="fas fa-box-open"></i><span>Inventario Compras</span></a>
     <a onclick="showSection('vale-inventario')" id="nav-vale-inventario"><i class="fas fa-hand-holding-heart"></i><span>Inventario Vale / Donación</span></a>
     <a onclick="showSection('inv-fisico')" id="nav-inv-fisico" class="admin-only"><i class="fas fa-clipboard-check"></i><span>Inv. Físico</span></a>
+    <div class="nav-group">Compras</div>
     <a onclick="showSection('ventas')" id="nav-ventas"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
     <a onclick="showSection('historial-ventas')" id="nav-historial-ventas"><i class="fas fa-history"></i><span>Historial Compras</span></a>
     <a onclick="openF361BatchModal()" id="nav-imprimir-folios"><i class="fas fa-print"></i><span>Imprimir folios</span></a>
     <a onclick="showSection('ventas-material')" id="nav-ventas-material"><i class="fas fa-chart-line"></i><span>Ventas por Material</span></a>
+    <div class="nav-group">Control</div>
     <a onclick="showSection('movimientos')" id="nav-movimientos"><i class="fas fa-exchange-alt"></i><span>Movimientos</span></a>
     <a onclick="showSection('kardex')" id="nav-kardex"><i class="fas fa-list-alt"></i><span>Kardex</span></a>
     <a onclick="showSection('config')" id="nav-config" class="admin-only"><i class="fas fa-users-cog"></i><span>Usuarios y Red</span></a>
@@ -625,7 +794,7 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
     </div>
     <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
       <a onclick="logout()" style="display:flex; align-items:center; gap:6px; font-size:0.74rem; color:#a7f3d0; cursor:pointer; font-weight:700; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background='rgba(239,68,68,0.15)'; this.style.color='#fca5a5'" onmouseout="this.style.background='rgba(255,255,255,0.04)'; this.style.color='#a7f3d0'"><i class="fas fa-sign-out-alt"></i> Salir</a>
-      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.6 • 2026</span>
+      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.7 • 2026</span>
     </div>
     <div style="height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); margin:10px 0 2px;"></div>
     <!-- ABAJO: Info desarrollador -->
@@ -643,10 +812,13 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
 </div>
 
 
+<div class="sidebar-scrim no-print" id="sidebar-scrim" aria-hidden="true"></div>
+
 <!-- MAIN -->
 <div id="main">
   <div id="topbar" class="no-print">
     <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+      <button type="button" class="menu-toggle no-print" id="menu-toggle" aria-label="Abrir menú" aria-controls="sidebar" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <h2 id="page-title"><i class="fas fa-chart-pie"></i> Dashboard</h2>
       <div id="venta-mode-tabs" class="venta-mode-tabs" role="tablist" aria-label="Tipo de registro">
         <button type="button" id="venta-mode-tab" class="venta-mode-tab active" onclick="showSection('ventas')">VENTA</button>
@@ -895,6 +1067,11 @@ color:#334155;font-family:inherit;font-weight:800;cursor:pointer;transition:.18s
         </div>
         <button class="btn btn-outline" onclick="openScannerModal('vm')" title="Escanear material con camara"><i class="fas fa-barcode"></i> Escanear</button>
         <button class="btn btn-success" onclick="exportVentasMaterialExcel()"><i class="fas fa-file-excel"></i> Exportar a Excel</button>
+        <div id="vm-desc-box" class="vm-desc-box is-general" role="status" aria-live="polite">
+          <div id="vm-desc-title" class="vm-desc-title">Todos los materiales</div>
+          <div id="vm-desc-text" class="vm-desc-text">Vista consolidada general. Selecciona un material para ver su descripción completa.</div>
+          <div id="vm-desc-meta" class="vm-desc-meta"></div>
+        </div>
       </div>
 
       <div id="vm-kpi-grid" class="stats-grid"></div>
@@ -2016,6 +2193,9 @@ async function firebaseConnectRoomInner() {
 
       if (!remote) {
         updateCloudBadge('online', 'Sala activa · esperando equipo...');
+        // Solo publica datos locales si esta computadora realmente tiene datos.
+        // La conexión/cierre de otra computadora nunca modifica las opciones
+        // locales de esta instancia.
         if (products.length || ventas.length || movimientos.length || users.length) {
           setTimeout(() => broadcastFullSync(true), 300);
         }
@@ -3014,7 +3194,11 @@ function populateVentasMaterialSelect(filterText = '') {
   }).sort((a, b) => normSortText(a.descripcion).localeCompare(normSortText(b.descripcion), 'es'));
 
   sel.innerHTML = '<option value="all">-- Todos los materiales (Consolidado General) --</option>' +
-    matched.map(p => `<option value="${p.id}">[${esc(p.clave)}] ${esc(p.descripcion)} ${p.factura ? '(Ref: ' + esc(p.factura) + ')' : ''} (Stock: ${p.cantidad})</option>`).join('');
+    matched.map(p => {
+      const full = `[${p.clave}] ${p.descripcion || ''} ${p.factura ? '(Ref: ' + p.factura + ')' : ''} (Stock: ${p.cantidad})`;
+      const short = full.length > 80 ? full.slice(0, 77) + '…' : full;
+      return `<option value="${esc(p.id).replace(/"/g,'&quot;')}" title="${esc(full).replace(/"/g,'&quot;')}">${esc(short)}</option>`;
+    }).join('');
 
   if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
     sel.value = currentVal;
@@ -3102,9 +3286,31 @@ function getVentasMaterialData() {
   return lines;
 }
 
+function updateVmDescBox(prod) {
+  const box = document.getElementById('vm-desc-box');
+  if (!box) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  if (!prod) {
+    box.classList.add('is-general');
+    set('vm-desc-title', 'Todos los materiales');
+    set('vm-desc-text', 'Vista consolidada general. Selecciona un material para ver su descripción completa.');
+    set('vm-desc-meta', '');
+    return;
+  }
+  box.classList.remove('is-general');
+  set('vm-desc-title', 'Material seleccionado · Clave ' + (prod.clave || '—'));
+  set('vm-desc-text', prod.descripcion || 'Sin descripción');
+  const meta = [];
+  if (prod.factura) meta.push('Ref: ' + prod.factura);
+  if (prod.unidad) meta.push('Unidad: ' + prod.unidad);
+  meta.push('Stock: ' + prod.cantidad);
+  set('vm-desc-meta', meta.join('   |   '));
+}
+
 function renderVentasMaterial() {
   const pid = document.getElementById('vm-product-select')?.value || 'all';
   const prod = products.find(p => String(p.id) === String(pid));
+  updateVmDescBox(prod);
   const badge = document.getElementById('vm-badge-clave');
   if (badge) badge.textContent = prod ? `${prod.clave} | Stock: ${prod.cantidad}` : 'GENERAL';
 
@@ -4399,32 +4605,134 @@ const F361_LOGO_DATA = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDA
 let f361FolderHandle = null;
 const F361_FOLDER_META_KEY = 'f361_folder_handle';
 
-// Guarda el handle real de la carpeta en IndexedDB para que sobreviva
-// al cierre de sesión y a la recarga de la página. No se guarda una ruta
-// de texto porque el navegador necesita conservar el FileSystemDirectoryHandle.
-async function f361SaveFolderHandle(handle) {
-  if (!handle) return;
+// =============================================================
+// CONFIGURACIÓN LOCAL DE LA CARPETA F-361 (AISLADA DE FIREBASE)
+// =============================================================
+// IMPORTANTE:
+// El manejador FileSystemDirectoryHandle pertenece EXCLUSIVAMENTE a este
+// navegador/equipo. Nunca debe formar parte de los datos sincronizados con
+// Firebase ni depender de las operaciones de guardado de products/ventas.
+// Se usa una IndexedDB separada para que una sincronización remota, un error
+// de Firebase o una actualización de datos nunca pueda borrar/sobrescribir
+// accidentalmente la carpeta seleccionada en esta computadora.
+const F361_SETTINGS_DB_NAME = 'CompraProF361Settings_v1';
+const F361_SETTINGS_DB_VERSION = 1;
+const F361_SETTINGS_STORE = 'settings';
+let f361SettingsDB = null;
+let f361SettingsOpenPromise = null;
+
+function f361OpenSettingsDB() {
+  if (f361SettingsDB) return Promise.resolve(f361SettingsDB);
+  if (f361SettingsOpenPromise) return f361SettingsOpenPromise;
+
+  f361SettingsOpenPromise = new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(F361_SETTINGS_DB_NAME, F361_SETTINGS_DB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains(F361_SETTINGS_STORE)) {
+          d.createObjectStore(F361_SETTINGS_STORE, { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = (e) => {
+        f361SettingsDB = e.target.result;
+        f361SettingsDB.onversionchange = () => {
+          try { f361SettingsDB.close(); } catch (_) {}
+          f361SettingsDB = null;
+        };
+        resolve(f361SettingsDB);
+      };
+      req.onerror = () => reject(req.error || new Error('No se pudo abrir la configuración local F-361.'));
+      req.onblocked = () => console.warn('[F-361] IndexedDB de configuración bloqueada temporalmente.');
+    } catch (e) {
+      reject(e);
+    }
+  }).finally(() => {
+    f361SettingsOpenPromise = null;
+  });
+
+  return f361SettingsOpenPromise;
+}
+
+async function f361SettingsGet(key, fallback = null) {
   try {
-    await idbSetMeta(F361_FOLDER_META_KEY, handle);
+    const database = await f361OpenSettingsDB();
+    return await new Promise((resolve) => {
+      const tx = database.transaction(F361_SETTINGS_STORE, 'readonly');
+      const req = tx.objectStore(F361_SETTINGS_STORE).get(key);
+      req.onsuccess = () => resolve(req.result ? req.result.value : fallback);
+      req.onerror = () => resolve(fallback);
+      tx.onabort = () => resolve(fallback);
+    });
   } catch (e) {
-    console.warn('No se pudo guardar la carpeta F-361 en IndexedDB:', e);
+    console.warn('[F-361] No se pudo leer configuración local:', e);
+    return fallback;
   }
 }
 
-async function f361LoadFolderHandle() {
+async function f361SettingsPut(key, value) {
   try {
-    const handle = await idbGetMeta(F361_FOLDER_META_KEY, null);
-    if (handle && typeof handle.getDirectoryHandle === 'function') {
-      f361FolderHandle = handle;
-      const status = document.getElementById('f361-folder-status');
-      if (status) status.textContent = `Carpeta seleccionada: ${handle.name}`;
-      return handle;
-    }
+    const database = await f361OpenSettingsDB();
+    return await new Promise((resolve) => {
+      const tx = database.transaction(F361_SETTINGS_STORE, 'readwrite');
+      tx.objectStore(F361_SETTINGS_STORE).put({ key, value });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
   } catch (e) {
-    console.warn('No se pudo recuperar la carpeta F-361:', e);
+    console.warn('[F-361] No se pudo guardar configuración local:', e);
+    return false;
   }
-  f361FolderHandle = null;
-  return null;
+}
+
+// Guarda el handle real de la carpeta en una base local EXCLUSIVA de F-361.
+// No se guarda una ruta de texto porque el navegador necesita conservar el
+// FileSystemDirectoryHandle. Esta información jamás se envía a Firebase.
+async function f361SaveFolderHandle(handle) {
+  if (!handle) return false;
+  const ok = await f361SettingsPut(F361_FOLDER_META_KEY, handle);
+  if (ok) f361FolderHandle = handle;
+  return ok;
+}
+
+async function f361LoadFolderHandle() {
+  // Si ya tenemos un handle válido en memoria, no lo reemplazamos por null
+  // debido a un fallo temporal de IndexedDB.
+  if (f361FolderHandle && typeof f361FolderHandle.getDirectoryHandle === 'function') {
+    const status = document.getElementById('f361-folder-status');
+    if (status) status.textContent = `Carpeta seleccionada: ${f361FolderHandle.name}`;
+    return f361FolderHandle;
+  }
+
+  let handle = await f361SettingsGet(F361_FOLDER_META_KEY, null);
+
+  // Migración única: versiones anteriores guardaban el handle en el store
+  // 'meta' de la base principal. Lo copiamos a la base aislada sin borrar el
+  // registro anterior; así una actualización nunca pierde la carpeta actual.
+  if (!handle) {
+    try {
+      const legacyHandle = await idbGetMeta(F361_FOLDER_META_KEY, null);
+      if (legacyHandle && typeof legacyHandle.getDirectoryHandle === 'function') {
+        handle = legacyHandle;
+        await f361SettingsPut(F361_FOLDER_META_KEY, legacyHandle);
+      }
+    } catch (e) {
+      console.warn('[F-361] No se pudo migrar la carpeta local anterior:', e);
+    }
+  }
+
+  if (handle && typeof handle.getDirectoryHandle === 'function') {
+    f361FolderHandle = handle;
+    const status = document.getElementById('f361-folder-status');
+    if (status) status.textContent = `Carpeta seleccionada: ${handle.name}`;
+    return handle;
+  }
+
+  // NO ponemos f361FolderHandle = null aquí si la lectura falló: una falla
+  // temporal de almacenamiento no debe hacer desaparecer una configuración
+  // que el usuario ya había seleccionado.
+  return f361FolderHandle;
 }
 
 function f361DateLong(iso) {
@@ -5179,10 +5487,17 @@ async function chooseF361Folder() {
     return;
   }
   try {
-    f361FolderHandle = await window.showDirectoryPicker({mode:'readwrite'});
-    await f361SaveFolderHandle(f361FolderHandle);
-    document.getElementById('f361-folder-status').textContent = `Carpeta seleccionada: ${f361FolderHandle.name}`;
-    showToast('Carpeta de folios seleccionada');
+    const selectedHandle = await window.showDirectoryPicker({mode:'readwrite'});
+    const saved = await f361SaveFolderHandle(selectedHandle);
+    if (!saved) {
+      // El handle queda en memoria aunque el almacenamiento persistente
+      // falle; no se pierde la selección durante esta sesión.
+      f361FolderHandle = selectedHandle;
+      showToast('Carpeta seleccionada para esta sesión; no se pudo persistir la configuración local.', 'warning');
+    } else {
+      showToast('Carpeta de folios seleccionada y guardada en esta computadora');
+    }
+    document.getElementById('f361-folder-status').textContent = `Carpeta seleccionada: ${selectedHandle.name}`;
   } catch(e) {
     if (e?.name !== 'AbortError') {
       console.error(e);
@@ -7665,6 +7980,26 @@ window.addEventListener('DOMContentLoaded', () => {
     setupLoginHandlers();
   });
 });
+</script>
+
+<script id="pro-ui-js">
+(function(){
+  'use strict';
+  var body=document.documentElement, btn=document.getElementById('menu-toggle'), scrim=document.getElementById('sidebar-scrim'), side=document.getElementById('sidebar');
+  function setNav(open){ body.classList.toggle('nav-open',open); if(btn){btn.setAttribute('aria-expanded',String(open)); btn.setAttribute('aria-label',open?'Cerrar menú':'Abrir menú');} }
+  if(btn) btn.addEventListener('click',function(){ setNav(!body.classList.contains('nav-open')); });
+  if(scrim) scrim.addEventListener('click',function(){ setNav(false); });
+  if(side) side.addEventListener('click',function(e){ if(e.target.closest('nav a')) setNav(false); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape' && body.classList.contains('nav-open')) setNav(false); });
+  window.addEventListener('resize',function(){ if(window.innerWidth>1024) setNav(false); });
+  // Pie de página profesional
+  var main=document.getElementById('main');
+  if(main && !document.getElementById('app-footer')){
+    var f=document.createElement('footer'); f.id='app-footer'; f.className='app-footer no-print';
+    f.innerHTML='<span><b>COMPRA</b> · Gestión de inventario y compras</span><span class="app-footer-ver"><i class="fas fa-shield-halved"></i> Versión 3.0.7</span><span>© 2026 Mario Alberto Chable García · Lic. en Informática</span>';
+    main.appendChild(f);
+  }
+})();
 </script>
 </body>
 </html>
