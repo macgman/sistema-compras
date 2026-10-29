@@ -3,19 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>COMPRA v3.0.7 · M.C</title>
+<title>COMPRA v3.0.7 · FIREBASE + EXCEL CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://compra-pro-888c9-default-rtdb.firebaseio.com" crossorigin>
 <link rel="preconnect" href="https://compra-pro-security.onrender.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
 <script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
 <!-- ExcelJS para generacion y lectura nativa de libros Excel (.xlsx) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root {
     --primary: #059669; --primary-dark: #047857; --secondary: #10b981; --danger: #ef4444; --warning: #f59e0b;
@@ -144,8 +146,11 @@
   .venta-empty { padding: 32px; text-align: center; color: #94a3b8; font-weight: 700; }
   .venta-row { display: grid; grid-template-columns: minmax(360px, 3fr) 105px 92px 120px 130px 44px; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); align-items: center; }
   .venta-row.venta-head { position: sticky; top: 0; z-index: 3; background: #f0fdf4; color: #166534; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; box-shadow: 0 1px 0 var(--border); }
-  .venta-product-name { font-weight: 800; color: #1e293b; line-height: 1.25; font-size: 0.88rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .venta-product-titleline { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 9px; }
+  .venta-product-name { font-weight: 800; color: #1e293b; line-height: 1.25; font-size: 0.88rem; display: inline; overflow-wrap:anywhere; }
   .venta-product-key { color: #047857; font-weight: 700; font-size: 0.78rem; margin-top: 3px; display: inline-block; background: #ecfdf5; padding: 1px 5px; border-radius: 4px; }
+  .venta-product-contract { display:inline-block; margin:0; color:#111827; font-size:.78rem; line-height:1.25; font-weight:900; overflow-wrap:anywhere; }
+  .ac-contract { display:inline; margin-left:8px; color:#111827; font-weight:900; font-size:.82rem; }
   .venta-unit-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; padding: 5px 9px; border-radius: 999px; background: #ecfdf5; color: #065f46; font-size: 0.70rem; font-weight: 800; text-transform: uppercase; border: 1px solid #a7f3d0; }
   .venta-qty-input { width: 68px; height: 34px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-weight: 800; text-align: center; font-size: 0.95rem; }
   /* Control de cantidad: cambios de uno en uno sin usar las flechas nativas */
@@ -220,6 +225,31 @@
   .admin-only { display: none !important; }
   body.is-admin .admin-only { display: block !important; }
   body.is-admin td.admin-only, body.is-admin th.admin-only { display: table-cell !important; }
+  /* Inventario: conserva la tabla completa dentro de la ventana y concentra
+     Partida/Contrato dentro de la celda de Clave, sin alterar las demás vistas. */
+  .inventario-table { table-layout: fixed; }
+  .inventario-table th:nth-child(1), .inventario-table td:nth-child(1) { width: 20%; }
+  .inventario-table th:nth-child(2), .inventario-table td:nth-child(2) { width: 36%; }
+  .inventario-table th:nth-child(3), .inventario-table td:nth-child(3) { width: 9%; }
+  .inventario-table th:nth-child(4), .inventario-table td:nth-child(4) { width: 9%; }
+  .inventario-table th:nth-child(5), .inventario-table td:nth-child(5) { width: 7%; }
+  .inventario-table th:nth-child(6), .inventario-table td:nth-child(6) { width: 8%; padding-left: 8px; padding-right: 8px; }
+  .inventario-table th:nth-child(7), .inventario-table td:nth-child(7) { width: 11%; padding-left: 7px; padding-right: 7px; }
+  .inventario-table td:nth-child(6) .badge { font-size: .68rem; padding: 5px 7px; white-space: nowrap; }
+  .inventario-table td:nth-child(7) > div { gap: 4px !important; }
+  .inventario-table td:nth-child(7) .btn-sm { font-size: .68rem; padding: 6px 7px; line-height: 1.1; }
+  .clave-meta { display:block; margin-top:4px; font-size:.76rem; line-height:1.3; color:#64748b; font-weight:700; overflow-wrap:anywhere; }
+  .clave-meta strong { color:#334155; }
+  @media (max-width: 1100px) {
+    .inventario-table { min-width: 0; }
+    .inventario-table thead th { padding: 10px 8px; font-size:.68rem; }
+    .inventario-table tbody td { padding: 9px 8px; font-size:.82rem; }
+    .inventario-table th:nth-child(1), .inventario-table td:nth-child(1) { width: 22%; }
+    .inventario-table th:nth-child(2), .inventario-table td:nth-child(2) { width: 34%; }
+    .inventario-table th:nth-child(6), .inventario-table td:nth-child(6) { width: 9%; }
+    .inventario-table th:nth-child(7), .inventario-table td:nth-child(7) { width: 12%; }
+  }
+
   body.is-admin .admin-inline { display: inline-flex !important; }
   .folio-permission { display: none !important; }
   body.is-admin .folio-permission,
@@ -850,7 +880,7 @@ tbody tr:hover{background:#f0fdf7!important}
     <!-- INVENTARIO -->
     <div id="section-inventario" class="section" style="display:none;">
       <div class="toolbar">
-        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="inv-search" placeholder="Buscar por clave, factura o nombre..." oninput="filterInventario()"></div>
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="inv-search" placeholder="Buscar por clave, partida, contrato, factura o nombre..." oninput="filterInventario()"></div>
         <button class="btn btn-outline" onclick="openScannerModal('inv')" title="Escanear Codigo de Barras o QR"><i class="fas fa-barcode"></i> Escanear</button>
         <select id="inv-stock-filter" onchange="filterInventario()">
           <option value="all">Todos los materiales</option>
@@ -881,7 +911,7 @@ tbody tr:hover{background:#f0fdf7!important}
         <button class="btn btn-excel361" onclick="openF361BatchModal()"><i class="fas fa-folder-tree"></i> Imprimir folios</button>
       </div>
       <div class="table-wrap">
-        <table><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>Unidad</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="admin-only">Acciones</th></tr></thead><tbody id="inv-tbody"></tbody></table>
+        <table class="inventario-table"><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>Unidad</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="admin-only">Acciones</th></tr></thead><tbody id="inv-tbody"></tbody></table>
       </div>
       <div class="pagination" id="inv-pagination"></div>
     </div>
@@ -1309,6 +1339,8 @@ tbody tr:hover{background:#f0fdf7!important}
     <div class="form-grid">
       <input type="hidden" id="prod-id">
       <div class="form-group"><label>Clave</label><input type="text" id="prod-clave"></div>
+      <div class="form-group"><label>Partida</label><input type="text" id="prod-partida" placeholder="Opcional"></div>
+      <div class="form-group"><label>Contrato</label><input type="text" id="prod-contrato" placeholder="Opcional"></div>
       <div class="form-group"><label>No. Factura</label><input type="text" id="prod-factura" placeholder="Opcional"></div>
       <div class="form-group"><label>Fecha</label><input type="date" id="prod-fecha-entrada"></div>
       <div class="form-group"><label>Unidad</label><input type="text" id="prod-unidad" placeholder="PIEZA, CAJA..."></div>
@@ -1928,12 +1960,41 @@ function initFirebase() {
 
     firebaseDB = firebase.database(firebaseApp);
     firebaseReady = true;
+    hookFirebaseAuthReconnect();
     return true;
   } catch (e) {
     firebaseReady = false;
     console.error('No se pudo inicializar Firebase:', e);
     return false;
   }
+}
+
+// Si el listener de la sala se registró ANTES de que Firebase Auth terminara de
+// restaurar la sesión, la base de datos lo rechaza (PERMISSION_DENIED) y nadie lo
+// volvía a registrar: la sincronización en vivo quedaba muerta hasta cerrar sesión.
+// Aquí se vuelve a registrar en cuanto hay un usuario autenticado.
+let firebaseAuthHooked = false;
+function hookFirebaseAuthReconnect() {
+  if (firebaseAuthHooked) return;
+  try {
+    if (!firebase.auth) return;
+    firebaseAuthHooked = true;
+    firebase.auth(firebaseApp).onAuthStateChanged((user) => {
+      if (user && cloudRoomId && !firebaseListeningPath) {
+        firebaseConnectRoom().catch(() => {});
+      }
+    });
+  } catch (e) {
+    console.warn('No se pudo vigilar el estado de Firebase Auth:', e);
+  }
+}
+
+// Espera máxima para operaciones de red. Devuelve { __timeout: true } en vez de
+// quedarse colgado para siempre (eso congelaba la pantalla al guardar).
+function fbWithTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ __timeout: true }), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function getFirebaseRoomPath() {
@@ -2220,8 +2281,15 @@ async function firebaseConnectRoomInner() {
       // volver a registrarlo (por ejemplo, después de iniciar sesión).
       firebaseListeningPath = '';
       console.error('Firebase Realtime Database:', error);
-      updateCloudBadge('offline', 'Error de Firebase: revisa reglas/red');
-      showToast('Firebase rechazó la conexión. Revisa las reglas de Realtime Database.', 'error');
+      let signedIn = true;
+      try { signedIn = !!(firebase.auth && firebase.auth(firebaseApp).currentUser); } catch (_) {}
+      if (!signedIn) {
+        // Todavía no hay sesión: se reintenta solo al iniciar sesión (onAuthStateChanged).
+        updateCloudBadge('offline', 'Inicia sesión para sincronizar');
+      } else {
+        updateCloudBadge('offline', 'Error de Firebase: revisa reglas/red');
+        showToast('Firebase rechazó la conexión. Revisa las reglas de Realtime Database.', 'error');
+      }
     });
 
     return true;
@@ -2299,7 +2367,51 @@ window.addEventListener('focus', () => {
   setTimeout(() => recoverFirebaseConnection(false), 700);
 });
 
-async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved = false) {
+// Varias llamadas seguidas (clics rápidos, guardados en cadena) se agrupan: solo
+// corre una sincronización a la vez y, si llegaron más cambios mientras tanto,
+// se hace UNA más al final. Antes cada clic descargaba y subía toda la base.
+let _bfsPromise = null;
+let _bfsAgain = false;
+let _bfsRetryTimer = null;
+
+let _bfsNeedsLocalSave = false;
+
+function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved = false) {
+  if (_bfsPromise) {
+    // Se anota que hay cambios nuevos; la siguiente ronda los guarda en el
+    // dispositivo ANTES de resolver esta promesa (nadie recibe "listo" sin guardar).
+    _bfsAgain = true;
+    if (!localAlreadySaved) _bfsNeedsLocalSave = true;
+    return _bfsPromise;
+  }
+  _bfsPromise = (async () => {
+    try {
+      await broadcastFullSyncInner(fromFirebaseListener, localAlreadySaved);
+      let guard = 0;
+      while (_bfsAgain && guard++ < 5) {
+        const needsSave = _bfsNeedsLocalSave;
+        _bfsAgain = false;
+        _bfsNeedsLocalSave = false;
+        await broadcastFullSyncInner(true, !needsSave);
+      }
+      _bfsAgain = false;
+      _bfsNeedsLocalSave = false;
+    } finally {
+      _bfsPromise = null;
+    }
+  })();
+  return _bfsPromise;
+}
+
+function scheduleSyncRetry(ms) {
+  if (_bfsRetryTimer) return;
+  _bfsRetryTimer = setTimeout(() => {
+    _bfsRetryTimer = null;
+    broadcastFullSync(true, true).catch(() => {});
+  }, ms);
+}
+
+async function broadcastFullSyncInner(fromFirebaseListener = false, localAlreadySaved = false) {
   sanitizeStoredData();
   if (!localAlreadySaved) await saveLocalData();
 
@@ -2325,8 +2437,17 @@ async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved
   try {
     // Antes de publicar, leemos el estado actual y lo fusionamos con el local.
     // Esto evita que una PC borre accidentalmente los cambios recientes de la otra.
-    const snap = await firebaseRoomRef.once('value');
-    const remote = snap.val();
+    const tStart = Date.now();
+    const snapRes = await fbWithTimeout(firebaseRoomRef.once('value'), 8000);
+    if (snapRes && snapRes.__timeout) {
+      // Sin lectura previa NO se publica: se podrían pisar cambios de otra PC.
+      // Los datos ya están guardados localmente; se reintenta solo.
+      updateCloudBadge('connecting', 'Conexión lenta · reintentando…');
+      if (!fromFirebaseListener) showToast('Conexión lenta con Firebase; guardado local, se reintentará solo.', 'warning');
+      scheduleSyncRetry(15000);
+      return;
+    }
+    const remote = snapRes.val();
 
     if (remote && remote.data && remote.meta?.clientId !== firebaseClientId) {
       mergeFirebaseState(remote);
@@ -2334,10 +2455,33 @@ async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved
     }
 
     const payload = buildFirebasePayload();
-    await firebaseRoomRef.set(payload);
+    // Quita valores undefined/NaN (Firebase rechaza undefined y la sincronización fallaba).
+    const json = JSON.stringify(payload);
+    const cleanPayload = JSON.parse(json);
+    const setPromise = firebaseRoomRef.set(cleanPayload);
+    setPromise.catch(() => {});
+    const setRes = await fbWithTimeout(setPromise, 12000);
 
     firebaseLastRemoteWrite = payload.meta.writtenAt;
+    const kb = Math.round(json.length / 1024);
+    const ms = Date.now() - tStart;
+    window.__syncStats = { kb, ms, at: new Date().toISOString() };
+    console.info('[Firebase] sincronización: ' + kb + ' KB en ' + ms + ' ms');
+
+    if (setRes && setRes.__timeout) {
+      // La escritura queda en cola dentro del SDK y se enviará al recuperar la red.
+      updateCloudBadge('connecting', 'Pendiente de enviar · sin respuesta de Firebase');
+      if (!fromFirebaseListener) showToast('Firebase no respondió a tiempo; los datos se enviarán al recuperar la conexión.', 'warning');
+      return;
+    }
+    if (_bfsRetryTimer) { clearTimeout(_bfsRetryTimer); _bfsRetryTimer = null; }
     updateCloudBadge('online', 'En Línea: ' + cloudRoomId + ' · Firebase');
+    const badgeEl = document.getElementById('cloud-status-badge');
+    if (badgeEl) badgeEl.title = 'Firebase conectado · última sincronización: ' + kb + ' KB en ' + ms + ' ms';
+    if (kb > 4000 && !window.__bigPayloadWarned) {
+      window.__bigPayloadWarned = true;
+      showToast('La base compartida ya pesa ' + Math.round(kb / 1024) + ' MB; la sincronización será lenta. Conviene archivar compras antiguas.', 'warning');
+    }
     if (!fromFirebaseListener) {
       showToast('Datos guardados y sincronizados en Firebase');
     }
@@ -2349,19 +2493,21 @@ async function broadcastFullSync(fromFirebaseListener = false, localAlreadySaved
 }
 
 async function saveLocalData() {
-  await idbClearAndPutAll('products', products);
-  await idbClearAndPutAll('ventas', ventas);
-  await idbClearAndPutAll('movimientos', movimientos);
-  await idbClearAndPutAll('users', users);
-  await idbSetMeta('valesManuales', valesManuales);
-  await idbSetMeta('valesInventario', valesInventario);
-  await idbSetMeta('folio', currentFolio);
-  await idbSetMeta('cloud_room', cloudRoomId);
-  await idbSetMeta('deletedProducts', deletedProducts);
-  await idbSetMeta('deletedVentas', deletedVentas);
-  await idbSetMeta('deletedValesManuales', deletedValesManuales);
-  await idbSetMeta('deletedMovimientos', deletedMovimientos);
-  await idbSetMeta('deletedUsers', deletedUsers);
+  await Promise.all([
+    idbClearAndPutAll('products', products),
+    idbClearAndPutAll('ventas', ventas),
+    idbClearAndPutAll('movimientos', movimientos),
+    idbClearAndPutAll('users', users),
+    idbSetMeta('valesManuales', valesManuales),
+    idbSetMeta('valesInventario', valesInventario),
+    idbSetMeta('folio', currentFolio),
+    idbSetMeta('cloud_room', cloudRoomId),
+    idbSetMeta('deletedProducts', deletedProducts),
+    idbSetMeta('deletedVentas', deletedVentas),
+    idbSetMeta('deletedValesManuales', deletedValesManuales),
+    idbSetMeta('deletedMovimientos', deletedMovimientos),
+    idbSetMeta('deletedUsers', deletedUsers)
+  ]);
   localStorage.setItem(STORAGE_PREFIX + 'folio_updated_at', String(currentFolioUpdatedAt || 0));
 }
 
@@ -2501,6 +2647,8 @@ async function importBulkExcel(input) {
       else if (txt.includes('unidad') || txt.includes('medida')) colMap.unidad = colNumber;
       else if (txt.includes('precio') || txt.includes('costo') || txt.includes('importe')) colMap.precio = colNumber;
       else if (txt.includes('stock') || txt.includes('cant') || txt.includes('exist')) colMap.cantidad = colNumber;
+      else if (txt.includes('partida')) colMap.partida = colNumber;
+      else if (txt.includes('contrato') || txt.includes('contract')) colMap.contrato = colNumber;
       else if (txt.includes('factura') || txt.includes('ref')) colMap.factura = colNumber;
     });
 
@@ -2520,6 +2668,8 @@ async function importBulkExcel(input) {
       const unidad = fixTextForExcel(colMap.unidad ? row.getCell(colMap.unidad).value : 'PIEZA') || 'PIEZA';
       const precio = Number(colMap.precio ? row.getCell(colMap.precio).value : 0) || 0;
       const cantidad = Number(colMap.cantidad ? row.getCell(colMap.cantidad).value : 0) || 0;
+      const partida = fixTextForExcel(colMap.partida ? row.getCell(colMap.partida).value : '');
+      const contrato = fixTextForExcel(colMap.contrato ? row.getCell(colMap.contrato).value : '');
       const factura = fixTextForExcel(colMap.factura ? row.getCell(colMap.factura).value : '');
 
       const existingIndex = products.findIndex(p => (clave && clave !== 'S/C' && String(p.clave).toLowerCase() === clave.toLowerCase()) || normalizeSearchText(p.descripcion) === normalizeSearchText(descripcion));
@@ -2532,6 +2682,8 @@ async function importBulkExcel(input) {
             ? cantidad
             : products[existingIndex].cantidad,
           factura: factura || products[existingIndex].factura,
+          partida: partida || products[existingIndex].partida || '',
+          contrato: contrato || products[existingIndex].contrato || '',
           unidad: unidad || products[existingIndex].unidad,
           updatedAt: now + r
         };
@@ -2545,6 +2697,8 @@ async function importBulkExcel(input) {
           precio,
           cantidad,
           factura,
+          partida,
+          contrato,
           fecha_entrada: todayISO(),
           bloqueado: false,
           updatedAt: now + r
@@ -2613,6 +2767,8 @@ function sanitizeStoredData() {
     ...p,
     clave: cleanCorruptedString(p.clave),
     factura: cleanCorruptedString(p.factura),
+    partida: cleanCorruptedString(p.partida),
+    contrato: cleanCorruptedString(p.contrato),
     descripcion: cleanCorruptedString(p.descripcion),
     unidad: cleanCorruptedString(p.unidad)
   }));
@@ -2624,7 +2780,9 @@ function sanitizeStoredData() {
       ...i,
       clave: cleanCorruptedString(i.clave),
       descripcion: cleanCorruptedString(i.descripcion),
-      unidad: cleanCorruptedString(i.unidad)
+      unidad: cleanCorruptedString(i.unidad),
+      partida: cleanCorruptedString(i.partida),
+      contrato: cleanCorruptedString(i.contrato)
     }))
   }));
   valesInventario = (Array.isArray(valesInventario) ? valesInventario : []).map(i => ({
@@ -2900,6 +3058,8 @@ function addMov(type, pid, qty, note="", folio="", cliente="", opts={}) {
     productId: pid || '',
     clave: fixTextForExcel(opts.clave || p.clave || '—'),
     desc: fixTextForExcel(opts.desc || p.descripcion || 'Movimiento sin producto'),
+    partida: fixTextForExcel(opts.partida || p.partida || ''),
+    contrato: fixTextForExcel(opts.contrato || p.contrato || ''),
     qty: parseFloat(qty) || 0,
     user: currentUser ? (currentUser.name || currentUser.username) : 'Sistema',
     note: fixTextForExcel(note),
@@ -3565,7 +3725,7 @@ function productMatchesSearch(p, rawQuery) {
   const q = normalizeSearchText(rawQuery);
   if (!q) return true;
   const words = q.split(/\s+/).filter(Boolean);
-  const haystack = [p.clave, p.factura, p.descripcion, p.unidad].map(normalizeSearchText).join(' ');
+  const haystack = [p.clave, p.partida, p.contrato, p.factura, p.descripcion, p.unidad].map(normalizeSearchText).join(' ');
   return words.every(word => haystack.includes(word));
 }
 
@@ -3593,7 +3753,11 @@ function renderInventario() {
   const start = (invPage-1)*invPerPage;
   document.getElementById('inv-tbody').innerHTML = list.slice(start, start+invPerPage).map(p => `
     <tr class="${p.bloqueado ? 'product-blocked' : ''}">
-      <td><span class="clave-cell">${esc(p.clave)}</span></td>
+      <td>
+        <span class="clave-cell">${esc(p.clave || 'N/A')}</span>
+        ${p.partida ? `<span class="clave-meta"><strong>Partida:</strong> ${esc(p.partida)}</span>` : ''}
+        ${p.contrato ? `<span class="clave-meta"><strong>Contrato:</strong> ${esc(p.contrato)}</span>` : ''}
+      </td>
       <td>${esc(p.descripcion)}</td>
       <td>${esc(p.unidad)}</td>
       <td>$${fmt(p.precio)}</td>
@@ -3650,6 +3814,8 @@ function openProductModal(id) {
   const p = id ? products.find(x => x.id === id) : null;
   document.getElementById('prod-id').value = p ? p.id : '';
   document.getElementById('prod-clave').value = p ? p.clave : '';
+  document.getElementById('prod-partida').value = p && p.partida ? p.partida : '';
+  document.getElementById('prod-contrato').value = p && p.contrato ? p.contrato : '';
   document.getElementById('prod-unidad').value = p ? p.unidad : '';
   document.getElementById('prod-descripcion').value = p ? p.descripcion : '';
   document.getElementById('prod-precio').value = p ? p.precio : '';
@@ -3678,6 +3844,8 @@ function openProductModal(id) {
 function saveProduct() {
   const id = document.getElementById('prod-id').value;
   const clave = fixTextForExcel(document.getElementById('prod-clave').value);
+  const partida = fixTextForExcel(document.getElementById('prod-partida').value);
+  const contrato = fixTextForExcel(document.getElementById('prod-contrato').value);
   const unidad = fixTextForExcel(document.getElementById('prod-unidad').value);
   const descripcion = fixTextForExcel(document.getElementById('prod-descripcion').value);
   const factura = fixTextForExcel(document.getElementById('prod-factura').value);
@@ -3695,7 +3863,7 @@ function saveProduct() {
   }
 
   const now = Date.now();
-  const d = { clave, unidad, descripcion, precio, cantidad: qty, factura, fecha_entrada: fechaEntrada, updatedAt: now };
+  const d = { clave, partida, contrato, unidad, descripcion, precio, cantidad: qty, factura, fecha_entrada: fechaEntrada, updatedAt: now };
 
   if (id) {
     const i = products.findIndex(x => String(x.id) === String(id));
@@ -3902,8 +4070,8 @@ function searchVentaProduct() {
     const out = Number(p.cantidad) <= 0;
     const blocked = p.bloqueado === true;
     return `<div class="ac-item ${(out || blocked) ? 'out-of-stock' : ''}" onclick="addVentaItem(${p.id})">
-      <strong>${esc(p.descripcion)}</strong> ${blocked ? '<span style="font-weight:bold; color:#b91c1c;">[BLOQUEADO]</span>' : (out ? '<span style="font-weight:bold; color:#ef4444;">[AGOTADO]</span>' : '')}<br>
-      <small>${esc(p.clave)} | Unidad: ${esc(p.unidad || 'PIEZA')} | $${fmt(p.precio)} | Stock: ${p.cantidad}${blocked ? ' | NO DISPONIBLE' : ''}</small>
+      <strong>${esc(p.descripcion)}</strong>${p.contrato ? ` <span class="ac-contract">Contrato: ${esc(p.contrato)}</span>` : ''} ${blocked ? '<span style="font-weight:bold; color:#b91c1c;">[BLOQUEADO]</span>' : (out ? '<span style="font-weight:bold; color:#ef4444;">[AGOTADO]</span>' : '')}<br>
+      <small>${esc(p.clave)}${p.partida ? ` | Partida: ${esc(p.partida)}` : ''} | Unidad: ${esc(p.unidad || 'PIEZA')} | $${fmt(p.precio)} | Stock: ${p.cantidad}${blocked ? ' | NO DISPONIBLE' : ''}</small>
     </div>`;
   }).join('') + `<div class="ac-item" style="cursor:default; text-align:center; color:#64748b; font-size:0.8rem;">${results.length} resultado(s)</div>`;
   acList.style.display = 'block';
@@ -3940,6 +4108,8 @@ function addVentaItem(id) {
     ventaItems.push({
       productId: p.id,
       clave: p.clave,
+      partida: p.partida || '',
+      contrato: p.contrato || '',
       descripcion: p.descripcion,
       unidad: p.unidad || 'PIEZA',
       precio: Number(p.precio) || 0,
@@ -4176,6 +4346,8 @@ async function _saveVentaCore() {
     cleanVentaItems.push({
       ...item,
       clave: fixTextForExcel(item.clave || prod.clave),
+      partida: fixTextForExcel(item.partida || prod.partida || ''),
+      contrato: fixTextForExcel(item.contrato || prod.contrato || ''),
       descripcion: fixTextForExcel(item.descripcion || prod.descripcion),
       unidad: fixTextForExcel(item.unidad || prod.unidad || 'PIEZA'),
       precio,
@@ -4376,6 +4548,15 @@ function syncMovimientoClientesFromVentas() {
   });
 }
 
+function getMovimientoContratoPartida(m) {
+  const p = products.find(x => String(x.id) === String(m.productId))
+    || products.find(x => normalizeSearchText(x.clave) === normalizeSearchText(m.clave)) || {};
+  return {
+    contrato: fixTextForExcel(m.contrato || p.contrato || ''),
+    partida: fixTextForExcel(m.partida || p.partida || '')
+  };
+}
+
 function getMovTimestamp(m) {
   if (m.updatedAt) return Number(m.updatedAt);
   if (Number(m.id) && Number(m.id) > 1000000000000) return Number(m.id);
@@ -4394,7 +4575,8 @@ function renderMovimientos() {
     const cliente = getMovimientoCliente(m);
     const folio = getMovimientoFolio(m);
     const tipo = getMovementTypeLabel(m.type);
-    const haystack = [m.desc, m.clave, m.note, folio, cliente, tipo, m.user].map(normalizeSearchText).join(' ');
+    const cp = getMovimientoContratoPartida(m);
+    const haystack = [m.desc, m.clave, m.note, cp.contrato, cp.partida, folio, cliente, tipo, m.user].map(normalizeSearchText).join(' ');
     const matchesQ = !words.length || words.every(word => haystack.includes(word));
     const matchesF = f === 'all' || tipo === f;
     return matchesQ && matchesF;
@@ -4411,13 +4593,14 @@ function renderMovimientos() {
     const cliente = getMovimientoCliente(m);
     const folio = getMovimientoFolio(m);
     const tipo = getMovementTypeLabel(m.type);
+    const cp = getMovimientoContratoPartida(m);
     const refLabel = tipo === 'SALIDA' ? 'Folio' : (tipo === 'MODIFICADA' ? 'Folio' : 'Ref.');
     return `
       <tr>
         <td><small>${esc(m.date)}</small></td>
         <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
         <td><span class="clave-cell" style="font-size:0.85rem;">${esc(m.clave)}</span></td>
-        <td>${esc(m.desc)}<br><small style="color:#64748b">${esc(m.note)}</small></td>
+        <td>${esc(m.desc)}<br>${(cp.contrato || cp.partida) ? `<small class="clave-meta">${cp.contrato ? `Contrato: ${esc(cp.contrato)}` : ''}${cp.contrato && cp.partida ? ' · ' : ''}${cp.partida ? `Partida: ${esc(cp.partida)}` : ''}</small>` : ''}<small style="color:#64748b">${esc(m.note)}</small></td>
         <td><strong>${esc(cliente || '—')}</strong>${folio ? `<br><small style="color:#64748b">${refLabel}: ${esc(folio)}</small>` : ''}</td>
         <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
         <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
@@ -4438,7 +4621,8 @@ function renderKardex() {
     const cliente = getMovimientoCliente(m);
     const folio = getMovimientoFolio(m);
     const tipo = getMovementTypeLabel(m.type);
-    const haystack = [folio, m.clave, m.desc, cliente, m.note, tipo, m.user].map(normalizeSearchText).join(' ');
+    const cp = getMovimientoContratoPartida(m);
+    const haystack = [folio, m.clave, m.desc, cliente, m.note, cp.contrato, cp.partida, tipo, m.user].map(normalizeSearchText).join(' ');
     const words = normalizeSearchText(q).split(/\s+/).filter(Boolean);
     return !words.length || words.every(word => haystack.includes(word));
   });
@@ -4452,13 +4636,14 @@ function renderKardex() {
     const cliente = getMovimientoCliente(m);
     const folio = getMovimientoFolio(m);
     const tipo = getMovementTypeLabel(m.type);
+    const cp = getMovimientoContratoPartida(m);
     return `
       <tr>
         <td><small>${esc(m.date)}</small></td>
         <td style="font-weight:bold; color:#059669;">${esc(folio || 'S/F')}${cliente ? `<br><small style="color:#64748b; font-weight:400;">${esc(cliente)}</small>` : ''}</td>
         <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
         <td><span class="clave-cell" style="font-size:0.85rem;">${esc(m.clave)}</span></td>
-        <td>${esc(m.desc)}${m.note ? `<br><small style="color:#64748b">${esc(m.note)}</small>` : ''}</td>
+        <td>${esc(m.desc)}${(cp.contrato || cp.partida) ? `<br><small class="clave-meta">${cp.contrato ? `Contrato: ${esc(cp.contrato)}` : ''}${cp.contrato && cp.partida ? ' · ' : ''}${cp.partida ? `Partida: ${esc(cp.partida)}` : ''}</small>` : ''}${m.note ? `<br><small style="color:#64748b">${esc(m.note)}</small>` : ''}</td>
         <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
         <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
       </tr>
@@ -4882,6 +5067,25 @@ function f361SetTextCell(doc, ref, value){
   t.textContent=String(value??'');
   is.appendChild(t); c.appendChild(is);
 }
+function f361SetDescriptionContractCell(doc, ref, descripcion, contrato){
+  const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const xmlSpace='http://www.w3.org/XML/1998/namespace';
+  const c=f361CellXml(doc,ref);
+  c.setAttribute('t','inlineStr');
+  f361ClearCell(c);
+  const is=doc.createElementNS(ns,'is');
+  const addRun=(text,bold=false)=>{
+    const r=doc.createElementNS(ns,'r');
+    if(bold){ const rPr=doc.createElementNS(ns,'rPr'); const b=doc.createElementNS(ns,'b'); rPr.appendChild(b); r.appendChild(rPr); }
+    const t=doc.createElementNS(ns,'t');
+    t.setAttributeNS(xmlSpace,'xml:space','preserve');
+    t.textContent=String(text??'');
+    r.appendChild(t); is.appendChild(r);
+  };
+  addRun(String(descripcion||'') + (contrato ? '\n' : ''));
+  if(contrato) addRun(String(contrato),true);
+  c.appendChild(is);
+}
 function f361SetNumberCell(doc, ref, value){
   const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
   const c=f361CellXml(doc,ref);
@@ -5136,8 +5340,10 @@ function f361ModifySheetXml(xml,v){
     const item=items[idx];
     if(item){
       const q=Number(item.cantidad)||0, p=Number(item.precio)||0, imp=q*p;
-      f361SetTextCell(doc,`B${r}`,item.clave||'');
-      f361SetTextCell(doc,`C${r}`,item.descripcion||'');
+      const productForPrint = products.find(p => String(p.id) === String(item.productId)) || {};
+      const contrato = String(item.contrato || productForPrint.contrato || '').trim();
+      f361SetTextCell(doc,`B${r}`,item.clave||productForPrint.clave||'');
+      f361SetDescriptionContractCell(doc,`C${r}`,item.descripcion||'',contrato);
       f361BlankCell(doc,`D${r}`);
       f361SetNumberCell(doc,`E${r}`,q);
       f361SetNumberCell(doc,`F${r}`,q);
@@ -7052,7 +7258,9 @@ function renderVentaItems() {
         <div></div>
       </div>`;
 
-    list.innerHTML = header + ventaItems.map((i, idx) => {
+    // Mantener el orden de captura: el primer material arriba y cada nuevo material al final.
+    list.innerHTML = header + [...ventaItems.keys()].map(idx => {
+      const i = ventaItems[idx];
       const prod = products.find(x => x.id === i.productId) || {};
       const unidadBase = fixTextForExcel(i.unidad || prod.unidad || 'PIEZA');
       const unidad = formatUnitByQuantity(i.cantidad, unidadBase);
@@ -7060,7 +7268,10 @@ function renderVentaItems() {
       return `
         <div class="venta-row">
           <div>
-            <div class="venta-product-name">${esc(i.descripcion)}</div>
+            <div class="venta-product-titleline">
+              <span class="venta-product-name">${esc(i.descripcion)}</span>
+              ${(i.contrato || prod.contrato || i.partida || prod.partida) ? `<strong class="venta-product-contract">${(i.contrato || prod.contrato) ? `Contrato: ${esc(i.contrato || prod.contrato)}` : ''}${(i.contrato || prod.contrato) && (i.partida || prod.partida) ? ' · ' : ''}${(i.partida || prod.partida) ? `Partida: ${esc(i.partida || prod.partida)}` : ''}</strong>` : ''}
+            </div>
             <small class="venta-product-key">${esc(i.clave)}</small>
           </div>
           <div><span class="venta-unit-badge">${esc(unidad)}</span></div>
@@ -7080,6 +7291,8 @@ function renderVentaItems() {
   document.getElementById('venta-total-val').textContent = '$' + fmt(total);
   const countEl = document.getElementById('venta-count-val');
   if (countEl) countEl.innerHTML = `${ventaItems.length} material(es) <span style="margin:0 6px;">|</span> ${piezas} pieza(s)`;
+  // Al agregar materiales, dejar visible el más reciente al final de la lista.
+  if (list) list.scrollTop = list.scrollHeight;
 }
 
 const _ventaQtyLastClick = Object.create(null);
@@ -7728,9 +7941,9 @@ async function exportSelectedReport() {
 
   const sheetInventario = {
     name: 'Inventario actual',
-    headers: ['Clave', 'Ultima factura', 'Ultima fecha', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual'],
-    widths: [18, 20, 14, 75, 20, 16, 14],
-    rows: products.map(p => [p.clave || '', p.factura || '', p.fecha_entrada || '', p.descripcion || '', p.unidad || '', Number(p.precio) || 0, Number(p.cantidad) || 0])
+    headers: ['Clave', 'Partida', 'Contrato', 'Ultima factura', 'Ultima fecha', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual'],
+    widths: [18, 22, 28, 20, 14, 75, 20, 16, 14],
+    rows: products.map(p => [p.clave || '', p.partida || '', p.contrato || '', p.factura || '', p.fecha_entrada || '', p.descripcion || '', p.unidad || '', Number(p.precio) || 0, Number(p.cantidad) || 0])
   };
 
   const sheetSold = {
@@ -7756,23 +7969,23 @@ async function exportSelectedReport() {
 
   const sheetZero = {
     name: 'Stock cero',
-    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
-    widths: [18, 75, 20, 16, 14, 22, 14],
-    rows: zeroProducts.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
+    headers: ['Clave', 'Partida', 'Contrato', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
+    widths: [18, 22, 28, 75, 20, 16, 14, 22, 14],
+    rows: zeroProducts.map(p => [p.clave, p.partida || '', p.contrato || '', p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
   };
 
   const sheetCritical = {
     name: 'Stock critico',
-    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
-    widths: [18, 75, 20, 16, 14, 22, 14],
-    rows: criticalProducts.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
+    headers: ['Clave', 'Partida', 'Contrato', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Ultima factura', 'Ultima fecha'],
+    widths: [18, 22, 28, 75, 20, 16, 14, 22, 14],
+    rows: criticalProducts.map(p => [p.clave, p.partida || '', p.contrato || '', p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, p.factura, p.fecha_entrada])
   };
 
   const sheetUnsold = {
     name: 'Sin compras',
-    headers: ['Clave', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Periodo analizado'],
-    widths: [18, 75, 20, 16, 14, 28],
-    rows: unsold.map(p => [p.clave, p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, range.from || range.to ? `${range.from || 'inicio'} a ${range.to || 'hoy'}` : 'todo el historial'])
+    headers: ['Clave', 'Partida', 'Contrato', 'Descripcion', 'Unidad', 'Precio ($)', 'Stock actual', 'Periodo analizado'],
+    widths: [18, 22, 28, 75, 20, 16, 14, 28],
+    rows: unsold.map(p => [p.clave, p.partida || '', p.contrato || '', p.descripcion, p.unidad, Number(p.precio) || 0, Number(p.cantidad) || 0, range.from || range.to ? `${range.from || 'inicio'} a ${range.to || 'hoy'}` : 'todo el historial'])
   };
 
   const sheetEntries = {
