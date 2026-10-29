@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>COMPRA v3.0.7 · M.C</title>
+<title>COMPRA v3.0.7 · FIREBASE + EXCEL CORREGIDO | Mario Alberto Chable García - Lic. en Informática | M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
@@ -881,6 +881,7 @@ tbody tr:hover{background:#f0fdf7!important}
     <div id="section-inventario" class="section" style="display:none;">
       <div class="toolbar">
         <div class="search-box"><i class="fas fa-search"></i><input type="text" id="inv-search" placeholder="Buscar por clave, partida, contrato, factura o nombre..." oninput="filterInventario()"></div>
+        <div class="search-box" style="flex:0 0 190px;min-width:160px;"><i class="fas fa-hashtag"></i><input type="text" id="inv-partida" placeholder="Partida (ej. 40)" title="Buscar por número de partida exacto. Puedes separar varias con coma: 40, 41" inputmode="numeric" autocomplete="off" oninput="filterInventario()"></div>
         <button class="btn btn-outline" onclick="openScannerModal('inv')" title="Escanear Codigo de Barras o QR"><i class="fas fa-barcode"></i> Escanear</button>
         <select id="inv-stock-filter" onchange="filterInventario()">
           <option value="all">Todos los materiales</option>
@@ -3729,11 +3730,26 @@ function productMatchesSearch(p, rawQuery) {
   return words.every(word => haystack.includes(word));
 }
 
+// Coincidencia EXACTA por número de partida (40 no coincide con 140 ni con 240 ML).
+// Acepta varias partidas separadas por coma, espacio o punto y coma. "040" = "40".
+function productMatchesPartida(p, rawPartida) {
+  const tokens = String(rawPartida || '').split(/[,;\s]+/).map(normalizeSearchText).filter(Boolean);
+  if (!tokens.length) return true;
+  const value = normalizeSearchText(p.partida);
+  if (!value) return false;
+  const asNum = v => (/^\d+$/.test(v) ? String(parseInt(v, 10)) : v);
+  const vNum = asNum(value);
+  return tokens.some(t => t === value || asNum(t) === vNum);
+}
+
 function getInventarioFiltradoOrdenado() {
   const q = document.getElementById('inv-search').value.toLowerCase().trim();
+  const partidaEl = document.getElementById('inv-partida');
+  const partidaQ = partidaEl ? partidaEl.value : '';
   const f = document.getElementById('inv-stock-filter').value;
 
   const list = products.filter(p => {
+    if (!productMatchesPartida(p, partidaQ)) return false;
     if (!productMatchesSearch(p, q)) return false;
     if (f === 'nonzero') return p.cantidad > 0;
     if (f === 'zero') return p.cantidad <= 0;
