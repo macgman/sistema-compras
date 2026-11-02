@@ -5513,7 +5513,7 @@ async function f361BuildExactXlsx(v){
     let data;
     if(e.name==='xl/worksheets/sheet1.xml') data=newSheet;
     else if(e.name==='xl/workbook.xml') data=newWorkbook;
-      else if(e.name==='xl/styles.xml' && newStyles) data=newStyles;
+    else if(e.name==='xl/styles.xml' && newStyles) data=newStyles;
     else if(e.name==='xl/drawings/drawing1.xml' && newDrawing) data=newDrawing;
     else if(e.name==='xl/_rels/workbook.xml.rels' && relsXml!==null) data=new TextEncoder().encode(relsXml);
     else if(e.name==='[Content_Types].xml' && contentTypesXml!==null) data=new TextEncoder().encode(contentTypesXml);
