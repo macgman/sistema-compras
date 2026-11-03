@@ -5179,31 +5179,6 @@ function f361ModifyWorkbookXml(xml,v,extraRows=0){
   return new XMLSerializer().serializeToString(doc);
 }
 
-// NUEVA FUNCION PARA CAMBIAR EL TAMAÑO DE FUENTE
-function f361ModifyStylesXml(xml){
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xml,'application/xml');
-
-  if(doc.getElementsByTagName('parsererror').length){
-    throw new Error('No se pudo leer styles.xml de la plantilla F-361');
-  }
-
-  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-
-  const fonts = doc.getElementsByTagNameNS(ns,'fonts')[0];
-  if(!fonts) return String(xml);
-
-  const firstFont = fonts.getElementsByTagNameNS(ns,'font')[0];
-  if(!firstFont) return String(xml);
-
-  const sizes = firstFont.getElementsByTagNameNS(ns,'sz')[0];
-  if(sizes){
-    sizes.setAttribute('val','9');
-  }
-
-  return new XMLSerializer().serializeToString(doc);
-}
-
 function f361ModifyDrawingXml(xml,extraRows=0){
   const delta=Number(extraRows)||0;
   if(!delta) return String(xml);
@@ -5454,7 +5429,6 @@ async function f361BuildExactXlsx(v){
   const entries=f361ZipEntries(source);
   const sheetEntry=entries.find(e=>e.name==='xl/worksheets/sheet1.xml');
   const workbookEntry=entries.find(e=>e.name==='xl/workbook.xml');
-  const stylesEntry=entries.find(e=>e.name==='xl/styles.xml');
   if(!sheetEntry) throw new Error('La plantilla no contiene sheet1.xml');
   if(!workbookEntry) throw new Error('La plantilla no contiene workbook.xml');
 
@@ -5465,15 +5439,6 @@ async function f361BuildExactXlsx(v){
 
   const originalWorkbook=new TextDecoder('utf-8').decode(await f361ExtractEntry(source,workbookEntry));
   const newWorkbook=new TextEncoder().encode(f361ModifyWorkbookXml(originalWorkbook,v,extraRows));
-  const newStyles = stylesEntry
-  ? new TextEncoder().encode(
-      f361ModifyStylesXml(
-        new TextDecoder('utf-8').decode(
-          await f361ExtractEntry(source,stylesEntry)
-        )
-      )
-    )
-  : null;
 
   const drawingEntry=entries.find(e=>e.name==='xl/drawings/drawing1.xml');
   const originalDrawing=drawingEntry
@@ -5513,7 +5478,6 @@ async function f361BuildExactXlsx(v){
     let data;
     if(e.name==='xl/worksheets/sheet1.xml') data=newSheet;
     else if(e.name==='xl/workbook.xml') data=newWorkbook;
-    else if(e.name==='xl/styles.xml' && newStyles) data=newStyles;
     else if(e.name==='xl/drawings/drawing1.xml' && newDrawing) data=newDrawing;
     else if(e.name==='xl/_rels/workbook.xml.rels' && relsXml!==null) data=new TextEncoder().encode(relsXml);
     else if(e.name==='[Content_Types].xml' && contentTypesXml!==null) data=new TextEncoder().encode(contentTypesXml);
