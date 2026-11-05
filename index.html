@@ -1189,16 +1189,42 @@ tbody tr:hover{background:#f0fdf7!important}
       </div>
     </div>
 
-    <!-- KARDEX -->
+    <!-- KARDEX PROFESIONAL: almacén único / costo promedio ponderado -->
     <div id="section-kardex" class="section" style="display:none;">
-      <div class="toolbar">
-        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="kardex-search" placeholder="Buscar por folio, factura, clave o descripci&oacute;n..." oninput="renderKardex()"></div>
-        <select id="kardex-sort" onchange="renderKardex()" title="Organizar Kardex">
-          <option value="reciente">Fecha: M&aacute;s reciente primero</option>
-          <option value="antiguo">Fecha: M&aacute;s antiguo primero</option>
-        </select>
+      <div class="net-box" style="margin-bottom:14px;">
+        <div class="net-box-title"><i class="fas fa-boxes-stacked" style="color:#059669;"></i> Kardex de almacén · Costo promedio ponderado</div>
+        <div class="net-box-sub">Las entradas toman el costo de compra del inventario. Las salidas se valorizan al promedio vigente. Los saldos anteriores a la activación se muestran como saldo inicial, no como movimientos históricos reconstruidos.</div>
       </div>
-      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Folio / Factura</th><th>Tipo</th><th>Clave</th><th>Material</th><th>Cant.</th><th>Usuario</th></tr></thead><tbody id="kardex-tbody"></tbody></table></div>
+      <div id="kardex-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;"></div>
+      <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
+        <div class="search-box" style="min-width:220px;flex:2;"><i class="fas fa-search"></i><input type="text" id="kardex-search" placeholder="Buscar folio, factura, clave o material..." oninput="renderKardex()"></div>
+        <input type="date" id="kardex-from" title="Desde" onchange="renderKardex()" style="min-width:135px;">
+        <input type="date" id="kardex-to" title="Hasta" onchange="renderKardex()" style="min-width:135px;">
+        <select id="kardex-type" onchange="renderKardex()"><option value="">Todos los movimientos</option><option value="ENTRADA">Entradas</option><option value="SALIDA">Salidas</option><option value="AJUSTE">Ajustes</option></select>
+        <select id="kardex-sort" onchange="renderKardex()" title="Ordenar"><option value="reciente">Más recientes</option><option value="antiguo">Más antiguos</option></select>
+      </div>
+      <div id="kardex-admin-tools" class="toolbar" style="margin:8px 0 14px;gap:8px;">
+        <button class="btn btn-primary" onclick="openKardexAdjustment()"><i class="fas fa-sliders"></i> Ajuste manual</button>
+        <button class="btn btn-outline" onclick="exportKardexExcel()"><i class="fas fa-file-excel"></i> Exportar Excel</button>
+        <button class="btn btn-outline" onclick="printKardex()"><i class="fas fa-print"></i> Imprimir</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Folio / Referencia</th><th>Tipo</th><th>Clave</th><th>Material</th><th>Entrada</th><th>Salida</th><th>Existencia</th><th>Costo unit.</th><th>Promedio</th><th>Valor saldo</th><th>Usuario</th></tr></thead><tbody id="kardex-tbody"></tbody></table></div>
+      <div id="kardex-count" style="font-size:.82rem;color:#64748b;margin-top:8px;"></div>
+    </div>
+
+    <div id="modal-kardex-ajuste" class="modal-overlay" style="display:none;">
+      <div class="modal" style="max-width:520px;">
+        <div class="modal-header"><h3><i class="fas fa-sliders"></i> Ajuste manual de Kardex</h3><button class="modal-close" onclick="closeModal('modal-kardex-ajuste')">&times;</button></div>
+        <div class="modal-body">
+          <label>Material</label><select id="kardex-ajuste-producto" class="form-control"></select>
+          <label style="margin-top:10px;display:block;">Tipo de ajuste</label><select id="kardex-ajuste-tipo" class="form-control" onchange="updateKardexAdjustmentCost()"><option value="ENTRADA">Entrada / incremento</option><option value="SALIDA">Salida / decremento</option></select>
+          <label style="margin-top:10px;display:block;">Cantidad</label><input id="kardex-ajuste-cantidad" class="form-control" type="number" min="0.0001" step="any" placeholder="Cantidad">
+          <div id="kardex-ajuste-cost-wrap"><label style="margin-top:10px;display:block;">Costo unitario de compra ($)</label><input id="kardex-ajuste-costo" class="form-control" type="number" min="0" step="0.01" placeholder="Costo unitario"></div>
+          <label style="margin-top:10px;display:block;">Motivo (obligatorio)</label><textarea id="kardex-ajuste-motivo" class="form-control" rows="3" placeholder="Explica el motivo y soporte del ajuste"></textarea>
+          <div style="font-size:.8rem;color:#64748b;margin-top:8px;">Solo el administrador puede autorizar ajustes. No se permite dejar existencias negativas.</div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('modal-kardex-ajuste')">Cancelar</button><button class="btn btn-primary" onclick="saveKardexAdjustment()">Registrar ajuste</button></div>
+      </div>
     </div>
 
     <!-- GESTIÓN DE USUARIOS, RED Y SEGURIDAD -->
@@ -3051,22 +3077,44 @@ function getMovementBadgeClass(type) {
 
 function addMov(type, pid, qty, note="", folio="", cliente="", opts={}) {
   const p = products.find(x => x.id == pid) || {};
+  const normalizedType = getMovementTypeLabel(type);
+  const quantity = Math.abs(Number(qty) || 0);
+  const now = Date.now();
+  const isLedgerMovement = ['ENTRADA','SALIDA'].includes(normalizedType) && !!p.id && quantity > 0;
+  let ledger = {};
+  if (isLedgerMovement) {
+    const stockAfterMutation = Math.max(0, Number(p.cantidad) || 0);
+    const stockBeforeMutation = Number.isFinite(Number(opts.stockBefore))
+      ? Math.max(0, Number(opts.stockBefore))
+      : (normalizedType === 'SALIDA' ? stockAfterMutation + quantity : Math.max(0, stockAfterMutation - quantity));
+    ensureKardexBaseline(p, stockBeforeMutation);
+    const stateBefore = calculateKardexProductState(p.id);
+    const unitCost = normalizedType === 'ENTRADA'
+      ? Math.max(0, Number(opts.unitCost !== undefined ? opts.unitCost : p.precio) || 0)
+      : Math.max(0, Number(stateBefore.averageCost) || 0);
+    const totalCost = unitCost * quantity;
+    const balanceAfter = normalizedType === 'ENTRADA' ? stateBefore.quantity + quantity : stateBefore.quantity - quantity;
+    const averageAfter = normalizedType === 'ENTRADA'
+      ? ((stateBefore.quantity * stateBefore.averageCost) + totalCost) / Math.max(balanceAfter, 1e-12)
+      : stateBefore.averageCost;
+    ledger = {
+      kardexVersion: 1, kardexTimestamp: now, kardexSource: opts.kardexSource || 'AUTOMATICO',
+      unitCost: Number.isFinite(unitCost) ? unitCost : null, totalCost: Number.isFinite(totalCost) ? totalCost : null,
+      balanceBefore: stateBefore.quantity, balanceAfter: Math.max(0, balanceAfter),
+      averageCostBefore: stateBefore.averageCost, averageCostAfter: Number.isFinite(averageAfter) ? averageAfter : 0,
+      inventoryValueAfter: Math.max(0, balanceAfter) * (Number.isFinite(averageAfter) ? averageAfter : 0),
+      costStatus: unitCost > 0 || normalizedType === 'ENTRADA' ? 'REGISTRADO' : 'SIN_COSTO',
+      stockBeforeAtEntry: stockBeforeMutation
+    };
+  }
   movimientos.unshift({
-    id: Date.now() + Math.random(),
-    date: new Date().toLocaleString(),
-    fecha_factura: opts.fecha_factura || '',
-    type: getMovementTypeLabel(type),
-    productId: pid || '',
-    clave: fixTextForExcel(opts.clave || p.clave || '—'),
-    desc: fixTextForExcel(opts.desc || p.descripcion || 'Movimiento sin producto'),
-    partida: fixTextForExcel(opts.partida || p.partida || ''),
-    contrato: fixTextForExcel(opts.contrato || p.contrato || ''),
-    qty: parseFloat(qty) || 0,
-    user: currentUser ? (currentUser.name || currentUser.username) : 'Sistema',
-    note: fixTextForExcel(note),
-    folio: fixTextForExcel(folio),
-    cliente: fixTextForExcel(cliente),
-    updatedAt: Date.now()
+    id: Date.now() + Math.random(), date: new Date().toLocaleString(), timestamp: now,
+    fecha_factura: opts.fecha_factura || '', type: normalizedType, productId: pid || '',
+    clave: fixTextForExcel(opts.clave || p.clave || '—'), desc: fixTextForExcel(opts.desc || p.descripcion || 'Movimiento sin producto'),
+    partida: fixTextForExcel(opts.partida || p.partida || ''), contrato: fixTextForExcel(opts.contrato || p.contrato || ''),
+    qty: quantity, user: currentUser ? (currentUser.name || currentUser.username) : 'Sistema',
+    note: fixTextForExcel(note), folio: fixTextForExcel(folio), cliente: fixTextForExcel(cliente),
+    updatedAt: now, ...ledger
   });
   if (movimientos.length > 100000) movimientos.length = 100000;
 }
@@ -4464,7 +4512,20 @@ async function _saveVentaCore() {
     if (!isEditing) addMov('SALIDA', i.productId, i.cantidad, 'Entrega / Compra', v.folio, v.cliente);
   });
 
-  if (isEditing) logVentaModificada(old, v);
+  if (isEditing) {
+    logVentaModificada(old, v);
+    const qtyByProduct = new Map();
+    (old.items || []).forEach(i => qtyByProduct.set(String(i.productId),(qtyByProduct.get(String(i.productId))||0)+(Number(i.cantidad)||0)));
+    (v.items || []).forEach(i => qtyByProduct.set(String(i.productId),(qtyByProduct.get(String(i.productId))||0)-(Number(i.cantidad)||0)));
+    qtyByProduct.forEach((delta,pid) => {
+      if (Math.abs(delta) < 1e-9) return;
+      const prod = products.find(x => String(x.id) === String(pid));
+      if (!prod) return;
+      const movementType = delta > 0 ? 'ENTRADA' : 'SALIDA';
+      const amount = Math.abs(delta);
+      addMov(movementType,pid,amount,`Corrección por modificación de compra ${v.folio}`,v.folio,v.cliente,{kardexSource:'CORRECCION_VENTA'});
+    });
+  }
 
   clearVenta();
   if (!isEditing && wasManualFolioOverride) {
@@ -4629,42 +4690,177 @@ function renderMovimientos() {
   }).join('');
 }
 
-function renderKardex() {
-  const q = document.getElementById('kardex-search').value.toLowerCase().trim();
-  const sortMode = document.getElementById('kardex-sort')?.value || 'reciente';
-  
-  const filtered = movimientos.filter(m => {
-    const cliente = getMovimientoCliente(m);
-    const folio = getMovimientoFolio(m);
-    const tipo = getMovementTypeLabel(m.type);
-    const cp = getMovimientoContratoPartida(m);
-    const haystack = [folio, m.clave, m.desc, cliente, m.note, cp.contrato, cp.partida, tipo, m.user].map(normalizeSearchText).join(' ');
-    const words = normalizeSearchText(q).split(/\s+/).filter(Boolean);
-    return !words.length || words.every(word => haystack.includes(word));
-  });
+function ensureKardexBaseline(product, stockOverride) {
+  if (!product || product.kardexOpeningQty !== undefined) return;
+  product.kardexOpeningQty = Math.max(0, Number(stockOverride !== undefined ? stockOverride : product.cantidad) || 0);
+  product.kardexOpeningCost = Math.max(0, Number(product.precio) || 0);
+  product.kardexOpeningDate = todayISO();
+  product.kardexBaselineNote = 'Saldo inicial al activar Kardex; costo tomado del campo Precio del inventario.';
+  product.kardexUpdatedAt = Date.now();
+}
 
-  filtered.sort((a, b) => {
-    const diff = getMovTimestamp(b) - getMovTimestamp(a);
+function calculateKardexProductState(productId) {
+  const p = products.find(x => String(x.id) === String(productId));
+  if (!p) return {quantity:0, averageCost:0, value:0};
+  ensureKardexBaseline(p);
+  let quantity = Math.max(0, Number(p.kardexOpeningQty) || 0);
+  let averageCost = Math.max(0, Number(p.kardexOpeningCost) || 0);
+  const ledger = movimientos.filter(m => String(m.productId) === String(productId) && m.kardexVersion === 1)
+    .sort((a,b) => (Number(a.kardexTimestamp || a.timestamp || a.updatedAt) || 0) - (Number(b.kardexTimestamp || b.timestamp || b.updatedAt) || 0));
+  ledger.forEach(m => {
+    const q = Math.abs(Number(m.qty) || 0);
+    if (getMovementTypeLabel(m.type) === 'ENTRADA') {
+      const c = Math.max(0, Number(m.unitCost) || 0);
+      const nextQty = quantity + q;
+      if (nextQty > 0) averageCost = ((quantity * averageCost) + (q * c)) / nextQty;
+      quantity = nextQty;
+    } else if (getMovementTypeLabel(m.type) === 'SALIDA') {
+      quantity = Math.max(0, quantity - q);
+    }
+  });
+  return {quantity, averageCost, value: quantity * averageCost};
+}
+
+function ensureAllKardexBaselines() {
+  let changed = false;
+  products.forEach(p => {
+    if (p && p.kardexOpeningQty === undefined) { ensureKardexBaseline(p); changed = true; }
+  });
+  if (changed && !window.__kardexBaselineSaveQueued) {
+    window.__kardexBaselineSaveQueued = true;
+    setTimeout(async () => {
+      try { await saveLocalData(); await broadcastFullSync(); }
+      catch(e) { console.warn('No se pudo guardar el saldo inicial del Kardex:', e); }
+      finally { window.__kardexBaselineSaveQueued = false; }
+    }, 0);
+  }
+}
+
+function moneyKardex(value) {
+  return '$' + (Number(value) || 0).toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function getKardexRows() {
+  return movimientos.filter(m => m.kardexVersion === 1).map(m => {
+    const p = products.find(x => String(x.id) === String(m.productId));
+    return {...m, _product:p || null};
+  });
+}
+
+function renderKardex() {
+  if (!Array.isArray(movimientos)) movimientos = [];
+  ensureAllKardexBaselines();
+  const searchEl = document.getElementById('kardex-search');
+  if (!searchEl) return;
+  const q = normalizeSearchText(searchEl.value || '');
+  const from = document.getElementById('kardex-from')?.value || '';
+  const to = document.getElementById('kardex-to')?.value || '';
+  const type = document.getElementById('kardex-type')?.value || '';
+  const sortMode = document.getElementById('kardex-sort')?.value || 'reciente';
+  const allRows = getKardexRows();
+  let filtered = allRows.filter(m => {
+    const haystack = normalizeSearchText([m.folio,m.clave,m.desc,m.cliente,m.note,m.user,m.kardexSource].join(' '));
+    const day = String(m.fecha_factura || (m.kardexTimestamp ? new Date(m.kardexTimestamp).toISOString().slice(0,10) : '')).slice(0,10);
+    const matchText = !q || q.split(/\s+/).every(w => haystack.includes(w));
+    return matchText && (!from || day >= from) && (!to || day <= to) && (!type || getMovementTypeLabel(m.type) === type);
+  });
+  filtered.sort((a,b) => {
+    const diff = Number(b.kardexTimestamp || b.timestamp || b.updatedAt) - Number(a.kardexTimestamp || a.timestamp || a.updatedAt);
     return sortMode === 'antiguo' ? -diff : diff;
   });
 
-  document.getElementById('kardex-tbody').innerHTML = filtered.slice(0, 150).map(m => {
-    const cliente = getMovimientoCliente(m);
-    const folio = getMovimientoFolio(m);
+  const totalUnits = products.reduce((sum,p) => sum + (calculateKardexProductState(p.id).quantity || 0), 0);
+  const totalValue = products.reduce((sum,p) => sum + (calculateKardexProductState(p.id).value || 0), 0);
+  const entryCount = allRows.filter(m => m.type === 'ENTRADA').length;
+  const exitCount = allRows.filter(m => m.type === 'SALIDA').length;
+  const summary = document.getElementById('kardex-summary');
+  if (summary) summary.innerHTML = [
+    ['Materiales', products.length], ['Existencia total', totalUnits.toLocaleString('es-MX',{maximumFractionDigits:3})],
+    ['Valor del inventario', moneyKardex(totalValue)], ['Entradas registradas', entryCount], ['Salidas registradas', exitCount]
+  ].map(([label,value]) => `<div class="net-box" style="padding:12px 14px;margin:0;"><div style="font-size:.78rem;color:#64748b;">${label}</div><div style="font-size:1.2rem;font-weight:800;color:#064e3b;margin-top:4px;">${value}</div></div>`).join('');
+
+  const tbody = document.getElementById('kardex-tbody');
+  if (tbody) tbody.innerHTML = filtered.slice(0,500).map(m => {
     const tipo = getMovementTypeLabel(m.type);
-    const cp = getMovimientoContratoPartida(m);
-    return `
-      <tr>
-        <td><small>${esc(m.date)}</small></td>
-        <td style="font-weight:bold; color:#059669;">${esc(folio || 'S/F')}${cliente ? `<br><small style="color:#64748b; font-weight:400;">${esc(cliente)}</small>` : ''}</td>
-        <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
-        <td><span class="clave-cell" style="font-size:0.85rem;">${esc(m.clave)}</span></td>
-        <td>${esc(m.desc)}${(cp.contrato || cp.partida) ? `<br><small class="clave-meta">${cp.contrato ? `Contrato: ${esc(cp.contrato)}` : ''}${cp.contrato && cp.partida ? ' · ' : ''}${cp.partida ? `Partida: ${esc(cp.partida)}` : ''}</small>` : ''}${m.note ? `<br><small style="color:#64748b">${esc(m.note)}</small>` : ''}</td>
-        <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
-        <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
-      </tr>
-    `;
+    const entrada = tipo === 'ENTRADA' ? Number(m.qty)||0 : 0;
+    const salida = tipo === 'SALIDA' ? Number(m.qty)||0 : 0;
+    const status = m.costStatus === 'SIN_COSTO' ? '<small style="color:#b45309;">Sin costo</small>' : moneyKardex(m.unitCost);
+    return `<tr>
+      <td><small>${esc(m.date || (m.kardexTimestamp ? new Date(m.kardexTimestamp).toLocaleString('es-MX') : ''))}</small></td>
+      <td><strong>${esc(getMovimientoFolio(m) || 'S/R')}</strong>${m.cliente ? `<br><small>${esc(m.cliente)}</small>`:''}</td>
+      <td><span class="badge ${getMovementBadgeClass(tipo)}">${esc(tipo)}</span></td>
+      <td><span class="clave-cell">${esc(m.clave || '')}</span></td>
+      <td>${esc(m.desc || '')}<br><small style="color:#64748b;">${esc(m.note || '')}</small></td>
+      <td style="color:#047857;font-weight:700;">${entrada || '—'}</td><td style="color:#b91c1c;font-weight:700;">${salida || '—'}</td>
+      <td style="font-weight:700;">${Number(m.balanceAfter || 0).toLocaleString('es-MX',{maximumFractionDigits:3})}</td>
+      <td>${status}</td><td>${moneyKardex(m.averageCostAfter)}</td><td>${moneyKardex(m.inventoryValueAfter)}</td>
+      <td><small>${esc(m.user || 'Sistema')}</small></td></tr>`;
   }).join('');
+  const count = document.getElementById('kardex-count');
+  if (count) count.textContent = `Mostrando ${Math.min(filtered.length,500)} de ${filtered.length} movimientos con costo y saldo. Los movimientos previos a la activación se conservan en el historial general, pero no se recalculan como Kardex valorizado.`;
+  const tools = document.getElementById('kardex-admin-tools');
+  if (tools) tools.style.display = currentUser && currentUser.role === 'admin' ? 'flex' : 'none';
+}
+
+function openKardexAdjustment() {
+  if (!currentUser || currentUser.role !== 'admin') { showToast('Solo el administrador puede realizar ajustes de Kardex','error'); return; }
+  const select = document.getElementById('kardex-ajuste-producto');
+  select.innerHTML = products.slice().sort((a,b)=>String(a.clave).localeCompare(String(b.clave))).map(p => `<option value="${esc(p.id)}">${esc(p.clave)} · ${esc(p.descripcion)}</option>`).join('');
+  document.getElementById('kardex-ajuste-cantidad').value = '';
+  document.getElementById('kardex-ajuste-costo').value = '';
+  document.getElementById('kardex-ajuste-motivo').value = '';
+  updateKardexAdjustmentCost();
+  openModal('modal-kardex-ajuste');
+}
+
+function updateKardexAdjustmentCost() {
+  const isEntry = document.getElementById('kardex-ajuste-tipo')?.value !== 'SALIDA';
+  const wrap = document.getElementById('kardex-ajuste-cost-wrap');
+  if (wrap) wrap.style.display = isEntry ? 'block' : 'none';
+}
+
+async function saveKardexAdjustment() {
+  if (!currentUser || currentUser.role !== 'admin') { showToast('No autorizado para ajustar inventario','error'); return; }
+  const id = document.getElementById('kardex-ajuste-producto').value;
+  const p = products.find(x => String(x.id) === String(id));
+  const type = document.getElementById('kardex-ajuste-tipo').value;
+  const qty = Number(document.getElementById('kardex-ajuste-cantidad').value);
+  const cost = Number(document.getElementById('kardex-ajuste-costo').value);
+  const reason = fixTextForExcel(document.getElementById('kardex-ajuste-motivo').value || '').trim();
+  if (!p) { showToast('Seleccione un material válido','error'); return; }
+  if (!Number.isFinite(qty) || qty <= 0) { showToast('La cantidad debe ser mayor que cero','error'); return; }
+  if (!reason) { showToast('Indique el motivo del ajuste','error'); return; }
+  if (type === 'ENTRADA' && (!Number.isFinite(cost) || cost < 0)) { showToast('Capture un costo unitario válido para la entrada','error'); return; }
+  const before = Math.max(0,Number(p.cantidad)||0);
+  if (type === 'SALIDA' && qty > before) { showToast('El ajuste dejaría existencias negativas; operación cancelada','error'); return; }
+  if (type === 'ENTRADA') p.cantidad = before + qty; else p.cantidad = before - qty;
+  if (type === 'ENTRADA') p.precio = cost;
+  p.updatedAt = Date.now();
+  addMov(type,p.id,qty,`AJUSTE MANUAL: ${reason}`,'AJUSTE','', {unitCost:cost,stockBefore:before,kardexSource:'AJUSTE_MANUAL'});
+  closeModal('modal-kardex-ajuste');
+  await saveLocalData(); await broadcastFullSync();
+  renderKardex(); renderInventario(); renderDashboard();
+  showToast('Ajuste registrado en el Kardex');
+}
+
+async function exportKardexExcel() {
+  if (!currentUser || currentUser.role !== 'admin') { showToast('Solo el administrador puede exportar el Kardex','error'); return; }
+  const rows = getKardexRows().sort((a,b)=>(a.kardexTimestamp||0)-(b.kardexTimestamp||0));
+  const detailRows = rows.map(m => [m.date,m.folio,m.type,m.clave,m.desc,m.qty,m.unitCost,m.totalCost,m.balanceAfter,m.averageCostAfter,m.inventoryValueAfter,m.user,m.note]);
+  const stockRows = products.map(p => { const st=calculateKardexProductState(p.id); return [p.clave,p.descripcion,p.unidad,st.quantity,st.averageCost,st.value,p.kardexOpeningDate || '']; });
+  await downloadStyledWorkbook([
+    {name:'Movimientos Kardex',headers:['Fecha','Folio / Ref.','Tipo','Clave','Material','Cantidad','Costo unitario','Costo total','Existencia','Costo promedio','Valor saldo','Usuario','Observaciones'],widths:[20,18,14,16,42,14,16,16,14,16,18,22,40],rows:detailRows},
+    {name:'Resumen inventario',headers:['Clave','Material','Unidad','Existencia','Costo promedio','Valor inventario','Fecha saldo inicial'],widths:[18,48,14,14,18,20,20],rows:stockRows}
+  ],`Kardex_${todayISO().replace(/-/g,'')}.xlsx`);
+}
+
+function printKardex() {
+  const rows = getKardexRows().sort((a,b)=>(a.kardexTimestamp||0)-(b.kardexTimestamp||0));
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Permita las ventanas emergentes para imprimir el Kardex','error'); return; }
+  const body = rows.map(m=>`<tr><td>${esc(m.date)}</td><td>${esc(m.folio||'')}</td><td>${esc(m.type)}</td><td>${esc(m.clave)}</td><td>${esc(m.desc)}</td><td>${m.qty}</td><td>${moneyKardex(m.unitCost)}</td><td>${m.balanceAfter}</td><td>${moneyKardex(m.averageCostAfter)}</td><td>${moneyKardex(m.inventoryValueAfter)}</td></tr>`).join('');
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Kardex COMPRA PRO</title><style>body{font:12px Arial;padding:20px;color:#111}h2{margin:0 0 8px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:6px;text-align:left}th{background:#e8f5ee} @page{size:landscape;margin:12mm}</style></head><body><h2>KARDEX DE ALMACÉN</h2><p>Método: costo promedio ponderado · Fecha de impresión: ${new Date().toLocaleString('es-MX')}</p><table><thead><tr><th>Fecha</th><th>Folio</th><th>Tipo</th><th>Clave</th><th>Material</th><th>Cant.</th><th>Costo unit.</th><th>Existencia</th><th>Promedio</th><th>Valor saldo</th></tr></thead><tbody>${body}</tbody></table></body></html>`);
+  win.document.close(); win.focus(); setTimeout(()=>win.print(),300);
 }
 
 function openMovModal(id) {
@@ -6192,7 +6388,11 @@ async function deleteVenta(id) {
     if (p) {
       p.cantidad = (Number(p.cantidad) || 0) + (Number(i.cantidad) || 0);
       p.updatedAt = now;
-      addMov('ENTRADA', p.id, i.cantidad, `Compra cancelada ${v.folio}`, v.folio, v.cliente);
+      const salidaOriginal = movimientos.find(m => m.kardexVersion === 1 && String(m.productId) === String(p.id) && String(m.folio) === String(v.folio) && getMovementTypeLabel(m.type) === 'SALIDA');
+      const costoReversion = salidaOriginal && Number.isFinite(Number(salidaOriginal.unitCost))
+        ? Number(salidaOriginal.unitCost)
+        : calculateKardexProductState(p.id).averageCost;
+      addMov('ENTRADA', p.id, i.cantidad, `Compra cancelada ${v.folio}`, v.folio, v.cliente, {unitCost:costoReversion,kardexSource:'REVERSA_CANCELACION'});
     }
   });
 
