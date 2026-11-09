@@ -18,7 +18,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
 <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<link rel="stylesheet" href="css/app.css?v=20261111">
+<link rel="stylesheet" href="css/app.css?v=20261108-permissions-ui">
 
 
 
@@ -658,6 +658,11 @@
           <option value="admin">Administrador (Control Total del Sistema)</option>
         </select>
       </div>
+      <div class="form-group full">
+        <label>Permisos individuales</label>
+        <div id="user-permissions" class="permission-grid" aria-label="Permisos individuales"></div>
+        <small style="color:#64748b;">Selecciona las funciones que podrá utilizar este usuario. Los permisos MASTER son exclusivos y no se asignan desde este formulario.</small>
+      </div>
     </div>
     <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
       <button class="btn btn-outline" onclick="closeModal('modal-user')">Cancelar</button>
@@ -965,10 +970,10 @@
 
 <div id="toast"></div>
 
-<script src="js/app.js?v=20261108-rbac-final"></script>
+<script src="js/app.js?v=20261108-permissions-ui"></script>
 
 <script id="pro-ui-js" src="js/pro-ui.js?v=20261111"></script>
 <script src="js/capa-web.js?v=20261111"></script>
-<script src="js/modulos.js?v=20261108-rbac-final"></script>
+<script src="js/modulos.js?v=20261108-permissions-ui"></script>
 </body>
 </html>
