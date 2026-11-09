@@ -1,0 +1,28 @@
+REPORTE DE VALIDACION - COMPRA RBAC
+Fecha: 2026-11-08
+
+RESULTADOS AUTOMATIZADOS
+[OK] node --check js/app.js
+[OK] node --check js/modulos.js
+[OK] node --check js/pro-ui.js
+[OK] node --check js/capa-web.js
+[OK] index.html sin IDs duplicados
+[OK] Rutas locales de CSS, JS e imágenes existentes
+[OK] Selector de permisos individuales presente
+[OK] Soporte de rol MASTER y protección de operaciones críticas en cliente
+[OK] Control de acceso a secciones en cliente
+
+PRUEBAS NO EJECUTADAS
+[NO EJECUTADA] Login real con cuentas MASTER/ADMIN/USUARIO: requiere el servicio remoto
+de autenticación y credenciales válidas.
+[NO EJECUTADA] Sincronización Firebase con reglas de claims: el backend de autenticación
+no está incluido en el ZIP.
+[NO EJECUTADA] Prueba navegador multi-PC/offline/impresión/Excel/cámara: requiere
+navegadores, dispositivos y servicios externos.
+
+ADVERTENCIA DE SEGURIDAD
+El control de permisos del navegador no sustituye autorización en el servidor.
+database.rules.json continúa usando auth != null. Antes de producción se debe modificar
+el servicio compra-pro-security.onrender.com para provisionar MASTER, validar roles y
+permisos en servidor y emitir claims de Firebase; después deben endurecerse las reglas
+de Realtime Database. Ver LEEME.txt.

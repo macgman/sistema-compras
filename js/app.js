@@ -212,6 +212,90 @@ const DEFAULT_USERS = [
 // pueda competir contra una contraseña que ya fue cambiada en otra PC.
 let users = DEFAULT_USERS.map(u => ({...u}));
 
+// =============================================================
+// CONTROL DE ACCESO GRANULAR (RBAC)
+// La cuenta MASTER debe ser provisionada por el servidor de autenticación.
+// Nunca se concede MASTER desde el formulario de usuarios.
+// =============================================================
+const COMPRA_PERMISSIONS = [
+  ['dashboard.view','Dashboard'],
+  ['inventory.view','Consultar inventario'],
+  ['inventory.create','Agregar materiales'],
+  ['inventory.edit','Modificar materiales'],
+  ['inventory.delete','Eliminar materiales'],
+  ['inventory.import','Carga masiva / importar'],
+  ['physical.manage','Inventario físico'],
+  ['purchases.create','Registrar compras'],
+  ['purchases.view','Consultar historial de compras'],
+  ['purchases.edit','Modificar compras'],
+  ['purchases.delete','Eliminar compras'],
+  ['vouchers.manage','Vales manuales y donaciones'],
+  ['movements.view','Consultar movimientos'],
+  ['movements.edit','Modificar movimientos'],
+  ['kardex.view','Consultar Kardex'],
+  ['kardex.adjust','Ajustes de Kardex'],
+  ['reports.export','Exportar reportes'],
+  ['folios.edit','Modificar folios'],
+  ['users.manage','Gestionar usuarios'],
+  ['settings.manage','Configuración y conexión'],
+  ['backup.export','Crear respaldos'],
+  ['backup.restore','Restaurar respaldos'],
+  ['system.reset','Borrar todos los datos']
+];
+const COMPRA_USER_DEFAULTS = [
+  'dashboard.view','inventory.view','purchases.create','purchases.view',
+  'vouchers.manage','movements.view','kardex.view','reports.export'
+];
+const COMPRA_ADMIN_DEFAULTS = COMPRA_PERMISSIONS.map(p => p[0])
+  .filter(p => !['system.reset'].includes(p));
+function isMasterUser(user = currentUser) { return !!user && user.role === 'master'; }
+function defaultPermissionsForRole(role) {
+  if (role === 'master') return COMPRA_PERMISSIONS.map(p => p[0]);
+  if (role === 'admin') return COMPRA_ADMIN_DEFAULTS.slice();
+  if (role === 'folio') return [...COMPRA_USER_DEFAULTS, 'folios.edit'];
+  return COMPRA_USER_DEFAULTS.slice();
+}
+function userHasPermission(permission, user = currentUser) {
+  if (!user) return false;
+  if (user.role === 'master') return true;
+  const list = Array.isArray(user.permissions) ? user.permissions : defaultPermissionsForRole(user.role);
+  return list.includes(permission);
+}
+function requirePermission(permission, message = 'No tienes permiso para realizar esta acción.') {
+  if (userHasPermission(permission)) return true;
+  showToast(message, 'error');
+  return false;
+}
+function normalizeUserPermissions(user) {
+  if (!user || user.role === 'master') return user;
+  if (!Array.isArray(user.permissions)) user.permissions = defaultPermissionsForRole(user.role);
+  user.permissions = [...new Set(user.permissions.filter(p => COMPRA_PERMISSIONS.some(x => x[0] === p)))];
+  return user;
+}
+function renderPermissionEditor(selected = COMPRA_USER_DEFAULTS) {
+  const host = document.getElementById('user-permissions');
+  if (!host) return;
+  const allowed = new Set(Array.isArray(selected) ? selected : []);
+  host.innerHTML = COMPRA_PERMISSIONS.map(([key,label]) => `
+    <label class="permission-option">
+      <input type="checkbox" name="user-permission" value="${key}" ${allowed.has(key) ? 'checked' : ''}>
+      <span>${label}</span>
+    </label>`).join('');
+}
+function readPermissionEditor() {
+  return [...document.querySelectorAll('#user-permissions input[name="user-permission"]:checked')].map(x => x.value);
+}
+function applyGranularPermissions() {
+  const setVisible = (el, visible) => {
+    el.hidden = !visible;
+    if (visible) el.style.removeProperty('display');
+    else el.style.setProperty('display', 'none', 'important');
+  };
+  document.querySelectorAll('[data-permission]').forEach(el => setVisible(el, userHasPermission(el.dataset.permission)));
+  document.querySelectorAll('[data-master-only]').forEach(el => setVisible(el, isMasterUser()));
+}
+
+
 function ensureLoginUsers() {
   if (!Array.isArray(users) || users.length === 0) {
     users = DEFAULT_USERS.map(u => ({...u}));
@@ -1380,7 +1464,7 @@ async function init() {
   });
 
   const sess = safeJsonParse(sessionStorage.getItem(STORAGE_PREFIX + 'session'), null);
-  if (sess && ['admin', 'user', 'folio'].includes(sess.role)) {
+  if (sess && ['master', 'admin', 'user', 'folio'].includes(sess.role)) {
     currentUser = sess;
     applyUserRole();
   }
@@ -1551,14 +1635,16 @@ async function attemptLoginMulti() {
     const auth = firebase.auth(firebaseApp);
     await auth.signInWithCustomToken(result.token);
 
-    const role = ['admin', 'user', 'folio'].includes(result.user.role)
+    const role = ['master', 'admin', 'user', 'folio'].includes(result.user.role)
       ? result.user.role : 'user';
     currentUser = {
       id: result.user.id ?? null,
       role,
       name: String(result.user.name || result.user.username || username),
-      username: String(result.user.username || username)
+      username: String(result.user.username || username),
+      permissions: Array.isArray(result.user.permissions) ? result.user.permissions : undefined
     };
+    normalizeUserPermissions(currentUser);
 
     sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
     applyUserRole();
@@ -1587,12 +1673,19 @@ async function attemptLoginMulti() {
 
 function applyUserRole() {
   const role = currentUser?.role || 'user';
-  document.body.className = role === 'admin' ? 'is-admin' : (role === 'folio' ? 'is-folio' : 'is-user');
-  const roleLabel = role === 'admin' ? 'ADMIN' : (role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO');
-  document.getElementById('role-tag').textContent = roleLabel;
-  document.getElementById('role-tag').className = 'role-badge ' + (role === 'admin' ? 'role-admin' : 'role-user');
-  document.getElementById('user-display').textContent = currentUser.name || currentUser.username;
-  document.getElementById('login-overlay').style.display = 'none';
+  normalizeUserPermissions(currentUser);
+  document.body.className = role === 'master' ? 'is-master is-admin' : (role === 'admin' ? 'is-admin' : (role === 'folio' ? 'is-folio' : 'is-user'));
+  const roleLabel = role === 'master' ? 'MASTER' : (role === 'admin' ? 'ADMINISTRADOR' : (role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO'));
+  const roleTag = document.getElementById('role-tag');
+  if (roleTag) {
+    roleTag.textContent = roleLabel;
+    roleTag.className = 'role-badge ' + (role === 'master' ? 'role-master' : (role === 'admin' ? 'role-admin' : 'role-user'));
+  }
+  const display = document.getElementById('user-display');
+  if (display) display.textContent = currentUser.name || currentUser.username;
+  const overlay = document.getElementById('login-overlay');
+  if (overlay) overlay.style.display = 'none';
+  applyGranularPermissions();
   showSection('dashboard');
 }
 
@@ -1611,13 +1704,13 @@ function renderUsersTable() {
       <tr>
         <td><strong>${esc(u.username)}</strong> ${isCurrent ? '<small style="color:#059669;">(T&uacute;)</small>' : ''}</td>
         <td>${esc(u.name)}</td>
-        <td><span class="role-badge ${u.role === 'admin' ? 'role-admin' : 'role-user'}">${u.role === 'admin' ? 'ADMIN' : (u.role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO')}</span></td>
+        <td><span class="role-badge ${u.role === 'master' ? 'role-master' : (u.role === 'admin' ? 'role-admin' : 'role-user')}">${u.role === 'master' ? 'MASTER' : (u.role === 'admin' ? 'ADMINISTRADOR' : (u.role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO'))}</span></td>
         <td><span class="badge ${isActive ? 'badge-ok' : 'badge-critical'}">${isActive ? 'ACTIVO' : 'INACTIVO'}</span></td>
         <td>
           <div style="display:flex; gap:6px;">
-            <button class="btn btn-outline btn-sm" onclick="openUserModal(${u.id})" title="Editar datos o clave"><i class="fas fa-edit"></i></button>
-            <button class="btn ${isActive ? 'btn-warning' : 'btn-success'} btn-sm" onclick="toggleUserActive(${u.id})" title="${isActive ? 'Desactivar' : 'Activar'}"><i class="fas ${isActive ? 'fa-user-slash' : 'fa-user-check'}"></i></button>
-            <button class="btn btn-danger btn-sm" onclick="deleteUserAccount(${u.id})" title="Eliminar cuenta" ${isCurrent ? 'disabled' : ''}><i class="fas fa-trash"></i></button>
+            <button class="btn btn-outline btn-sm" onclick="openUserModal(${u.id})" title="Editar datos o clave" ${(u.role === 'master' && !isMasterUser()) || (u.role === 'admin' && !isMasterUser()) ? 'disabled' : ''}><i class="fas fa-edit"></i></button>
+            <button class="btn ${isActive ? 'btn-warning' : 'btn-success'} btn-sm" onclick="toggleUserActive(${u.id})" title="${isActive ? 'Desactivar' : 'Activar'}" ${(u.role === 'master' && !isMasterUser()) ? 'disabled' : ''}><i class="fas ${isActive ? 'fa-user-slash' : 'fa-user-check'}"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUserAccount(${u.id})" title="Eliminar cuenta" ${(isCurrent || (u.role === 'master' && !isMasterUser()) || (u.role === 'admin' && !isMasterUser())) ? 'disabled' : ''}><i class="fas fa-trash"></i></button>
           </div>
         </td>
       </tr>
@@ -1626,22 +1719,32 @@ function renderUsersTable() {
 }
 
 function openUserModal(id = null) {
+  if (!requirePermission('users.manage')) return;
   const u = id ? users.find(x => Number(x.id) === Number(id)) : null;
   document.getElementById('user-id').value = u ? u.id : '';
   document.getElementById('user-fullname').value = u ? u.name : '';
   document.getElementById('user-username').value = u ? u.username : '';
   document.getElementById('user-password').value = '';
-  document.getElementById('user-role').value = u ? u.role : 'user';
+  document.getElementById('user-role').value = u && u.role !== 'master' ? u.role : 'user';
+  const roleSelect = document.getElementById('user-role');
+  if (roleSelect) {
+    const adminOption = roleSelect.querySelector('option[value="admin"]');
+    if (adminOption) adminOption.disabled = !isMasterUser();
+  }
+  renderPermissionEditor(u?.permissions || defaultPermissionsForRole(u?.role || 'user'));
   document.getElementById('modal-user-title').innerHTML = u ? '<i class="fas fa-user-edit" style="color:var(--primary); margin-right:8px;"></i>Editar Usuario' : '<i class="fas fa-user-plus" style="color:var(--primary); margin-right:8px;"></i>Nuevo Usuario';
   openModal('modal-user');
 }
 
 async function saveUserData() {
+  if (!requirePermission('users.manage')) return;
   const id = document.getElementById('user-id').value;
   const name = fixTextForExcel(document.getElementById('user-fullname').value);
   const username = document.getElementById('user-username').value.trim().toLowerCase();
   const pass = document.getElementById('user-password').value.trim();
   const role = document.getElementById('user-role').value;
+  if (role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede crear o asignar administradores.', 'error'); return; }
+  const permissions = readPermissionEditor();
 
   if (!name || !username) {
     showToast('Complete el nombre y el usuario', 'error');
@@ -1665,11 +1768,18 @@ async function saveUserData() {
   const now = Date.now();
 
   if (id) {
+    const existingTarget = users.find(u => String(u.id) === String(id));
+    if (existingTarget?.role === 'master' && !isMasterUser()) { showToast('La cuenta MASTER está protegida.', 'error'); return; }
+    if (existingTarget?.role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede modificar administradores.', 'error'); return; }
     const idx = users.findIndex(u => String(u.id) === String(id));
     if (idx >= 0) {
       users[idx].name = name;
       users[idx].username = username;
+      if (users[idx].role === 'master' && !isMasterUser()) {
+        showToast('Solo MASTER puede modificar la cuenta MASTER.', 'error'); return;
+      }
       users[idx].role = role;
+      users[idx].permissions = role === 'master' ? [] : permissions;
       users[idx].updatedAt = now;
       if (pass) users[idx].passHash = await hashSHA256(pass);
     }
@@ -1680,11 +1790,18 @@ async function saveUserData() {
       username,
       passHash: await hashSHA256(pass),
       role,
+      permissions: role === 'master' ? [] : permissions,
       active: true,
       updatedAt: now
     });
   }
 
+  if (currentUser && String(currentUser.id) === String(id)) {
+    currentUser.role = role;
+    currentUser.permissions = permissions;
+    sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
+    applyUserRole();
+  }
   await broadcastFullSync();
   renderUsersTable();
   closeModal('modal-user');
@@ -1692,8 +1809,10 @@ async function saveUserData() {
 }
 
 async function toggleUserActive(id) {
+  if (!requirePermission('users.manage')) return;
   const u = users.find(x => Number(x.id) === Number(id));
   if (!u) return;
+  if (u.role === 'master' && !isMasterUser()) { showToast('La cuenta MASTER está protegida.', 'error'); return; }
   if (currentUser && Number(currentUser.id) === Number(u.id)) {
     showToast('No puedes desactivar tu propia sesión activa', 'error');
     return;
@@ -1706,6 +1825,10 @@ async function toggleUserActive(id) {
 }
 
 async function deleteUserAccount(id) {
+  if (!requirePermission('users.manage')) return;
+  const protectedTarget = users.find(u => Number(u.id) === Number(id));
+  if (protectedTarget?.role === 'master' && !isMasterUser()) { showToast('La cuenta MASTER está protegida.', 'error'); return; }
+  if (protectedTarget?.role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede eliminar administradores.', 'error'); return; }
   if (currentUser && Number(currentUser.id) === Number(id)) {
     showToast('No puedes eliminar la cuenta en la que estás conectado', 'error');
     return;
@@ -1999,6 +2122,16 @@ async function exportVentasMaterialExcel() {
 }
 
 function showSection(name) {
+  const sectionPermission = {
+    dashboard:'dashboard.view', inventario:'inventory.view', 'vale-inventario':'inventory.view',
+    'inv-fisico':'physical.manage', ventas:'purchases.create', 'vale-manual':'vouchers.manage',
+    'historial-ventas':'purchases.view', 'ventas-material':'reports.export',
+    movimientos:'movements.view', kardex:'kardex.view', config:'users.manage'
+  }[name];
+  if (sectionPermission && !userHasPermission(sectionPermission)) {
+    showToast('No tienes permiso para acceder a esta sección.', 'error'); return;
+  }
+
   document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
   document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
   const section = document.getElementById('section-' + name);
@@ -2192,10 +2325,7 @@ function setIfPage(p) { ifPage = p; renderInvFisico(); }
 function refreshStock() { renderInventario(); showToast('Stock refrescado'); }
 
 function toggleProductLock(id) {
-  if (!currentUser || currentUser.role !== 'admin') {
-    showToast('Solo el administrador puede bloquear o desbloquear productos', 'error');
-    return;
-  }
+  if (!requirePermission('inventory.edit')) return;
   const p = products.find(x => String(x.id) === String(id));
   if (!p) { showToast('Producto no encontrado', 'error'); return; }
 
@@ -2216,6 +2346,8 @@ function toggleProductLock(id) {
 }
 
 function openProductModal(id) {
+  if (!requirePermission('inventory.create')) return;
+  
   const p = id ? products.find(x => x.id === id) : null;
   document.getElementById('prod-id').value = p ? p.id : '';
   document.getElementById('prod-clave').value = p ? p.clave : '';
@@ -2248,6 +2380,7 @@ function openProductModal(id) {
 
 function saveProduct() {
   const id = document.getElementById('prod-id').value;
+  if (!requirePermission(id ? 'inventory.edit' : 'inventory.create')) return;
   const clave = fixTextForExcel(document.getElementById('prod-clave').value);
   const partida = fixTextForExcel(document.getElementById('prod-partida').value);
   const contrato = fixTextForExcel(document.getElementById('prod-contrato').value);
@@ -2289,10 +2422,7 @@ function saveProduct() {
 }
 
 function openEntradaModal(id) {
-  if (!currentUser || currentUser.role !== 'admin') {
-    showToast('Solo el administrador puede registrar entradas de material', 'error');
-    return;
-  }
+  if (!requirePermission('inventory.edit')) return;
   const p = products.find(x => String(x.id) === String(id));
   if (!p) { showToast('Material no encontrado', 'error'); return; }
 
@@ -2321,10 +2451,7 @@ function updateEntradaPreview() {
 }
 
 function saveProductEntry() {
-  if (!currentUser || currentUser.role !== 'admin') {
-    showToast('Solo el administrador puede registrar entradas de material', 'error');
-    return;
-  }
+  if (!requirePermission('inventory.edit')) return;
   const id = document.getElementById('entrada-prod-id').value;
   const p = products.find(x => String(x.id) === String(id));
   if (!p) { showToast('Material no encontrado', 'error'); return; }
@@ -2362,6 +2489,8 @@ function saveProductEntry() {
 }
 
 function deleteProduct() {
+  if (!requirePermission('inventory.delete')) return;
+
   const id = document.getElementById('prod-id').value;
   if (confirm('¿Eliminar este material del catalogo?')) { 
     const target = products.find(x => x.id == id);
@@ -2410,7 +2539,9 @@ function renderInvFRow(id, sys, el) {
 
 function resetInvFisico() { ifCounts = {}; renderInvFisico(); }
 
-function applyInvFisico() { 
+function applyInvFisico() {
+  if (!requirePermission('physical.manage')) return;
+   
   if (confirm('¿Actualizar stock del sistema con el conteo fisico?')) { 
     const now = Date.now();
     Object.keys(ifCounts).forEach(id => { 
@@ -3140,11 +3271,13 @@ function renderKardex() {
   const count = document.getElementById('kardex-count');
   if (count) count.textContent = `Mostrando ${Math.min(filtered.length,500)} de ${filtered.length} movimientos con costo y saldo. Los movimientos previos a la activación se conservan en el historial general, pero no se recalculan como Kardex valorizado.`;
   const tools = document.getElementById('kardex-admin-tools');
-  if (tools) tools.style.display = currentUser && currentUser.role === 'admin' ? 'flex' : 'none';
+  if (tools) tools.style.display = userHasPermission('kardex.adjust') || userHasPermission('reports.export') ? 'flex' : 'none';
 }
 
 function openKardexAdjustment() {
-  if (!currentUser || currentUser.role !== 'admin') { showToast('Solo el administrador puede realizar ajustes de Kardex','error'); return; }
+  if (!requirePermission('kardex.adjust')) return;
+  
+  
   const select = document.getElementById('kardex-ajuste-producto');
   select.innerHTML = products.slice().sort((a,b)=>String(a.clave).localeCompare(String(b.clave))).map(p => `<option value="${esc(p.id)}">${esc(p.clave)} · ${esc(p.descripcion)}</option>`).join('');
   document.getElementById('kardex-ajuste-cantidad').value = '';
@@ -3161,7 +3294,9 @@ function updateKardexAdjustmentCost() {
 }
 
 async function saveKardexAdjustment() {
-  if (!currentUser || currentUser.role !== 'admin') { showToast('No autorizado para ajustar inventario','error'); return; }
+  if (!requirePermission('kardex.adjust')) return;
+  
+  
   const id = document.getElementById('kardex-ajuste-producto').value;
   const p = products.find(x => String(x.id) === String(id));
   const type = document.getElementById('kardex-ajuste-tipo').value;
@@ -3185,7 +3320,7 @@ async function saveKardexAdjustment() {
 }
 
 async function exportKardexExcel() {
-  if (!currentUser || currentUser.role !== 'admin') { showToast('Solo el administrador puede exportar el Kardex','error'); return; }
+  if (!requirePermission('reports.export')) return;
   const rows = getKardexRows().sort((a,b)=>(a.kardexTimestamp||0)-(b.kardexTimestamp||0));
   const detailRows = rows.map(m => [m.date,m.folio,m.type,m.clave,m.desc,m.qty,m.unitCost,m.totalCost,m.balanceAfter,m.averageCostAfter,m.inventoryValueAfter,m.user,m.note]);
   const stockRows = products.map(p => { const st=calculateKardexProductState(p.id); return [p.clave,p.descripcion,p.unidad,st.quantity,st.averageCost,st.value,p.kardexOpeningDate || '']; });
@@ -3216,6 +3351,8 @@ function openMovModal(id) {
 }
 
 function saveMovChanges() {
+  if (!requirePermission('movements.edit')) return;
+
   const id = document.getElementById('mov-id').value;
   const m = movimientos.find(x => String(x.id) === String(id));
   if (!m) { showToast('Movimiento no encontrado', 'error'); return; }
@@ -4833,7 +4970,7 @@ function handleValeItemTab(event, idx) {
 // INVENTARIO EXCLUSIVO PARA VALE MANUAL / DONACION
 // =============================================================
 function canManageValeInventory() {
-  return !!(currentUser && currentUser.role === 'admin') || document.body.classList.contains('is-admin');
+  return userHasPermission('vouchers.manage');
 }
 
 let editingValeInventoryId = null;
@@ -5908,7 +6045,7 @@ function clearVenta() {
 }
 
 function canEditFolio() {
-  return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'folio');
+  return userHasPermission('folios.edit');
 }
 
 function openFolioModal() {
@@ -5996,6 +6133,7 @@ async function saveFolio() {
 // REINICIO TOTAL DEL SISTEMA (BORRAR TODO PARA OTRO PROYECTO)
 // =============================================================
 function openResetSystemModal() {
+  if (!isMasterUser()) { showToast('Solo MASTER puede reiniciar el sistema.', 'error'); return; }
   const input = document.getElementById('reset-system-password');
   input.value = '';
   openModal('modal-reset-system');
@@ -6008,6 +6146,7 @@ function closeResetSystemModal() {
 }
 
 async function confirmResetSystem() {
+  if (!isMasterUser()) { showToast('Solo MASTER puede reiniciar el sistema.', 'error'); return; }
   const pass = document.getElementById('reset-system-password').value.trim();
   if (!pass) {
     showToast('Ingrese la contraseña de administrador o la clave maestra', 'error');
@@ -6600,12 +6739,16 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 function showToast(m, t='success') { const el = document.getElementById('toast'); el.textContent = m; el.className = 'show toast-'+t; setTimeout(()=>el.className='', 3000); }
 
 function exportBackup() {
+  if (!requirePermission('backup.export')) return;
+
   const data = { products, ventas, valesManuales, valesInventario, movimientos, currentFolio, users, deletedProducts, deletedVentas, deletedValesManuales, deletedMovimientos, deletedUsers, system: 'COMPRA', timestamp: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup_compra_${todayISO()}.json`; link.click();
 }
 
 function importBackup(input) {
+  if (!requirePermission('backup.restore')) return;
+
   const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -6749,4 +6892,11 @@ window.addEventListener('DOMContentLoaded', () => {
     try { updateCloudBadge('offline', 'Modo local - datos locales disponibles'); } catch (_) {}
     setupLoginHandlers();
   });
+});
+
+// Actualiza permisos sugeridos al cambiar el nivel en el formulario.
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'user-role') {
+    renderPermissionEditor(defaultPermissionsForRole(e.target.value));
+  }
 });

@@ -714,3 +714,9 @@ tbody tr:hover{background:#f0fdf7!important}
 .vm-desc-meta{margin-top:6px;font-size:.8rem;color:var(--ink-2);font-weight:600;white-space:pre-wrap}
 .vm-desc-meta:empty{display:none}
 
+
+/* Control de permisos individuales */
+.permission-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface,#fff);max-height:260px;overflow:auto}
+.permission-option{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer}
+.permission-option input{accent-color:#059669}
+.role-master{background:#5b21b6!important;color:#fff!important}

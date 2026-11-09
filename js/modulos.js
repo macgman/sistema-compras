@@ -259,25 +259,8 @@ function auAct(){var a=this.getAttribute('data-au');
   else if(a==='rules'){try{navigator.clipboard.writeText(RULES).then(function(){T('Reglas copiadas. Pégalas en Firebase → Reglas → Publicar')})}catch(e){mo('Reglas de Firebase','<textarea style="width:100%;height:240px;font-family:monospace">'+E(RULES)+'</textarea>')}}
   else if(a==='fb')window.open('https://console.firebase.google.com/project/compra-pro-888c9/database/compra-pro-888c9-default-rtdb/rules','_blank','noopener');
   else if(a==='pw'){var t=$('#section-seguridad table');if(t)t.scrollIntoView({behavior:'smooth',block:'center'})}}
-/* ---------- Stock mínimo dentro de «Gestionar» y «Dar entrada» ---------- */
-function minField(id){return '<div class="form-group"><label>Stock mínimo (alerta)</label><input type="number" min="0" step="1" id="'+id+'" placeholder="5 por omisión"></div>'}
-function setMin(inputId,p){var i=$('#'+inputId);if(!i)return;var v=p?ext.stockMin[pk(p)]:null;i.value=v!=null?v:''}
-function saveMin(inputId,p){var i=$('#'+inputId);if(!i||!p)return;var raw=i.value.trim(),k=pk(p),cur=ext.stockMin[k];
-  if(raw===''){if(cur!=null)put('stockMin',k,null)}else{var v=Math.max(0,Math.floor(Number(raw)));if(isFinite(v)&&v!==cur)put('stockMin',k,v)}}
-function hookModals(){
-  var g1=$('#modal-producto .form-grid'),g2=$('#modal-entrada-producto .form-grid');
-  if(g1&&!$('#wr-min-prod'))g1.insertAdjacentHTML('beforeend',minField('wr-min-prod'));
-  if(g2&&!$('#wr-min-ent')){var ng=$('#entrada-nota'),gr=ng&&ng.closest('.form-group');if(gr)gr.insertAdjacentHTML('beforebegin',minField('wr-min-ent'));else g2.insertAdjacentHTML('beforeend',minField('wr-min-ent'))}
-  var oP=window.openProductModal;if(oP)window.openProductModal=function(id){var r=oP.apply(this,arguments);var p=id?(products.filter(function(x){return x.id===id})[0]||null):null;setMin('wr-min-prod',p);return r};
-  var oE=window.openEntradaModal;if(oE)window.openEntradaModal=function(id){var r=oE.apply(this,arguments);setMin('wr-min-ent',products.filter(function(x){return String(x.id)===String(id)})[0]);return r};
-  var sP=window.saveProduct;if(sP)window.saveProduct=function(){var id=$('#prod-id').value,n=products.length,pv=id?(products.filter(function(x){return String(x.id)===String(id)})[0]||{}).updatedAt:null;
-    var r=sP.apply(this,arguments),p=null;
-    if(id){p=products.filter(function(x){return String(x.id)===String(id)})[0];if(p&&p.updatedAt===pv)p=null}else if(products.length>n)p=products[products.length-1];
-    saveMin('wr-min-prod',p);return r};
-  var sE=window.saveProductEntry;if(sE)window.saveProductEntry=function(){var id=$('#entrada-prod-id').value,m=movimientos.length;
-    var r=sE.apply(this,arguments);if(movimientos.length>m)saveMin('wr-min-ent',products.filter(function(x){return String(x.id)===String(id)})[0]);return r}}
 /* ---------- Arranque ---------- */
-function init(){mkNav();hookModals();mkSection('stock-minimo','');mkSection('ordenes','');mkSection('seguridad','')}
+function init(){mkNav();mkSection('stock-minimo','');mkSection('ordenes','');mkSection('seguridad','')}
 init();load();
 var oRole=window.applyUserRole;window.applyUserRole=function(){var r=oRole.apply(this,arguments);load();listen();
   setTimeout(function(){if(isAdmin()&&defaultUsers().some(function(u){return String(u.id)===String(currentUser.id)||u.username===currentUser.username}))pwModal(true)},1500);return r};

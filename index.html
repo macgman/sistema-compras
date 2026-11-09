@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>COMPRA v3.0.8 · M.C</title>
+<title>COMPRA v3.0.7 · M.C</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <!-- Firebase Realtime Database para sincronización en tiempo real entre computadoras -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
@@ -18,7 +18,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
 <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<link rel="stylesheet" href="css/app.css?v=20261111">
+<link rel="stylesheet" href="css/app.css?v=20261108-rbac1">
 
 
 
@@ -39,7 +39,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <script>try{var t=localStorage.getItem('wr-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="stylesheet" href="css/capa-web.css?v=20261111">
+<link rel="stylesheet" href="css/capa-web.css?v=20261108-rbac1">
 </head>
 <body>
 <div id="wr-splash"><i class="fas fa-boxes-stacked" style="font-size:2.6rem;color:#6ee7b7"></i><b>COMPRA</b><div class="wr-spin"></div></div>
@@ -96,7 +96,7 @@
         <small><i class="fas fa-code" style="margin-right:4px;"></i>Creador y desarrollador de PROGRAMA COMPRA</small>
       </div>
     </div>
-    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.8</div>
+    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.7</div>
   </div>
 </div>
 
@@ -108,20 +108,20 @@
   </div>
   <nav>
     <div class="nav-group">General</div>
-    <a class="active" onclick="showSection('dashboard')" id="nav-dashboard"><i class="fas fa-chart-pie"></i><span>Dashboard</span></a>
+    <a class="active" onclick="showSection('dashboard')" id="nav-dashboard" data-permission="dashboard.view"><i class="fas fa-chart-pie"></i><span>Dashboard</span></a>
     <div class="nav-group">Inventario</div>
-    <a onclick="showSection('inventario')" id="nav-inventario"><i class="fas fa-box-open"></i><span>Inventario Compras</span></a>
-    <a onclick="showSection('vale-inventario')" id="nav-vale-inventario"><i class="fas fa-hand-holding-heart"></i><span>Inventario Vale / Donación</span></a>
-    <a onclick="showSection('inv-fisico')" id="nav-inv-fisico" class="admin-only"><i class="fas fa-clipboard-check"></i><span>Inv. Físico</span></a>
+    <a onclick="showSection('inventario')" id="nav-inventario" data-permission="inventory.view"><i class="fas fa-box-open"></i><span>Inventario Compras</span></a>
+    <a onclick="showSection('vale-inventario')" id="nav-vale-inventario" data-permission="inventory.view"><i class="fas fa-hand-holding-heart"></i><span>Inventario Vale / Donación</span></a>
+    <a onclick="showSection('inv-fisico')" id="nav-inv-fisico" data-permission="physical.manage" class="admin-only"><i class="fas fa-clipboard-check"></i><span>Inv. Físico</span></a>
     <div class="nav-group">Compras</div>
-    <a onclick="showSection('ventas')" id="nav-ventas"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
-    <a onclick="showSection('historial-ventas')" id="nav-historial-ventas"><i class="fas fa-history"></i><span>Historial Compras</span></a>
-    <a onclick="openF361BatchModal()" id="nav-imprimir-folios"><i class="fas fa-print"></i><span>Imprimir folios</span></a>
-    <a onclick="showSection('ventas-material')" id="nav-ventas-material"><i class="fas fa-chart-line"></i><span>Ventas por Material</span></a>
+    <a onclick="showSection('ventas')" id="nav-ventas" data-permission="purchases.create"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
+    <a onclick="showSection('historial-ventas')" id="nav-historial-ventas" data-permission="purchases.view"><i class="fas fa-history"></i><span>Historial Compras</span></a>
+    <a onclick="openF361BatchModal()" id="nav-imprimir-folios" data-permission="folios.edit"><i class="fas fa-print"></i><span>Imprimir folios</span></a>
+    <a onclick="showSection('ventas-material')" id="nav-ventas-material" data-permission="reports.export"><i class="fas fa-chart-line"></i><span>Ventas por Material</span></a>
     <div class="nav-group">Control</div>
-    <a onclick="showSection('movimientos')" id="nav-movimientos"><i class="fas fa-exchange-alt"></i><span>Movimientos</span></a>
-    <a onclick="showSection('kardex')" id="nav-kardex"><i class="fas fa-list-alt"></i><span>Kardex</span></a>
-    <a onclick="showSection('config')" id="nav-config" class="admin-only"><i class="fas fa-users-cog"></i><span>Usuarios y Red</span></a>
+    <a onclick="showSection('movimientos')" id="nav-movimientos" data-permission="movements.view"><i class="fas fa-exchange-alt"></i><span>Movimientos</span></a>
+    <a onclick="showSection('kardex')" id="nav-kardex" data-permission="kardex.view"><i class="fas fa-list-alt"></i><span>Kardex</span></a>
+    <a onclick="showSection('config')" id="nav-config" data-permission="users.manage" class="admin-only"><i class="fas fa-users-cog"></i><span>Usuarios y Red</span></a>
   </nav>
   <div class="dev-sidebar-footer">
     <!-- ARRIBA: Controles de usuario -->
@@ -131,7 +131,7 @@
     </div>
     <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
       <a onclick="logout()" style="display:flex; align-items:center; gap:6px; font-size:0.74rem; color:#a7f3d0; cursor:pointer; font-weight:700; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background='rgba(239,68,68,0.15)'; this.style.color='#fca5a5'" onmouseout="this.style.background='rgba(255,255,255,0.04)'; this.style.color='#a7f3d0'"><i class="fas fa-sign-out-alt"></i> Salir</a>
-      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.8 • 2026</span>
+      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.7 • 2026</span>
     </div>
     <div style="height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); margin:10px 0 2px;"></div>
     <!-- ABAJO: Info desarrollador -->
@@ -583,8 +583,8 @@
           </div>
 
           <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <button class="btn btn-primary" onclick="saveCloudRoom()"><i class="fas fa-plug"></i> Conectar Sala</button>
-            <button class="btn btn-outline" onclick="broadcastFullSync()"><i class="fas fa-sync-alt"></i> Forzar Env&iacute;o de Datos</button>
+            <button class="btn btn-primary" onclick="saveCloudRoom()" data-permission="settings.manage"><i class="fas fa-plug"></i> Conectar Sala</button>
+            <button class="btn btn-outline" onclick="broadcastFullSync()" data-permission="settings.manage"><i class="fas fa-sync-alt"></i> Forzar Env&iacute;o de Datos</button>
           </div>
         </div>
 
@@ -593,10 +593,10 @@
           <div class="net-box-title"><i class="fas fa-shield-alt" style="color: #059669;"></i> Respaldos del Sistema</div>
           <div class="net-box-sub">Base de datos local en IndexedDB sin l&iacute;mites de almacenamiento.</div>
 
-          <button class="btn btn-success" style="width:100%; margin-bottom:14px; justify-content:center; padding: 13px;" onclick="exportBackup()"><i class="fas fa-download"></i> Descargar Respaldo Total (.json)</button>
+          <button class="btn btn-success" style="width:100%; margin-bottom:14px; justify-content:center; padding: 13px;" onclick="exportBackup()" data-permission="backup.export"><i class="fas fa-download"></i> Descargar Respaldo Total (.json)</button>
           <div style="background:#f8fafc; border:1px dashed var(--border); border-radius:12px; padding:16px; text-align:center;">
             <input type="file" id="backup-file" style="display:none;" onchange="importBackup(this)">
-            <button class="btn btn-outline" style="width:100%; justify-content:center;" onclick="document.getElementById('backup-file').click()"><i class="fas fa-upload"></i> Restaurar Base de Datos</button>
+            <button class="btn btn-outline" style="width:100%; justify-content:center;" onclick="document.getElementById('backup-file').click()" data-permission="backup.restore"><i class="fas fa-upload"></i> Restaurar Base de Datos</button>
             <small style="display:block; color:#64748b; margin-top:8px;">Importe archivos .json generados previamente.</small>
           </div>
 
@@ -606,7 +606,7 @@
               <div style="font-weight:800; color:#b91c1c; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.03em;"><i class="fas fa-triangle-exclamation"></i> Zona de Peligro</div>
               <small style="display:block; color:#64748b; margin-top:4px;">Borra todo (productos, compras, movimientos y usuarios) para reutilizar este sistema en otro proyecto o cliente distinto.</small>
             </div>
-            <button class="btn btn-danger" style="justify-content:center;" onclick="openResetSystemModal()"><i class="fas fa-trash-can"></i> Borrar Todos los Datos</button>
+            <button class="btn btn-danger" style="justify-content:center;" onclick="openResetSystemModal()" data-master-only><i class="fas fa-trash-can"></i> Borrar Todos los Datos</button>
           </div>
         </div>
       </div>
@@ -655,8 +655,13 @@
         <select id="user-role">
           <option value="user">Usuario (Operativo / Compras / Kardex)</option>
           <option value="folio">Usuario + Folio (solo puede modificar el folio)</option>
-          <option value="admin">Administrador (Control Total del Sistema)</option>
+          <option value="admin">Administrador (permisos asignables)</option>
         </select>
+      </div>
+      <div class="form-group full">
+        <label>Permisos individuales</label>
+        <div id="user-permissions" class="permission-grid" aria-label="Permisos individuales"></div>
+        <small style="color:#64748b;">Los permisos se aplican además del rol. MASTER no se crea desde este formulario.</small>
       </div>
     </div>
     <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
@@ -964,10 +969,10 @@
 
 <div id="toast"></div>
 
-<script src="js/app.js?v=20261111"></script>
+<script src="js/app.js?v=20261108-rbac1"></script>
 
-<script id="pro-ui-js" src="js/pro-ui.js?v=20261111"></script>
-<script src="js/capa-web.js?v=20261111"></script>
-<script src="js/modulos.js?v=20261108b"></script>
+<script id="pro-ui-js" src="js/pro-ui.js?v=20261108-rbac1"></script>
+<script src="js/capa-web.js?v=20261108-rbac1"></script>
+<script src="js/modulos.js?v=20261108-rbac1"></script>
 </body>
 </html>

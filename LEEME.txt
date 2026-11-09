@@ -1,0 +1,66 @@
+COMPRA — sitio web listo para subir
+===================================
+
+SUBE TODO EL CONTENIDO de esta carpeta (archivos y carpetas css, js, img) a la raiz de tu sitio.
+index.html debe quedar en la raiz, junto a las carpetas css/, js/ e img/.
+
+Archivos del sitio:
+  index.html, sw.js, manifest.webmanifest, icon.svg, 404.html
+  css/ (app.css, capa-web.css)
+  js/  (app.js, pro-ui.js, capa-web.js, modulos.js)
+  img/ (logo.png, marca-agua.png)
+
+NO subir al sitio: database.rules.json (es para Firebase) ni este LEEME.
+
+REGLAS DE FIREBASE (seguridad)
+  1. Firebase Console > Realtime Database > pestana Reglas.
+  2. Copia el contenido de database.rules.json, pegalo y pulsa Publicar.
+  3. Prueba iniciar sesion desde otro navegador. Si algo dejara de funcionar,
+     en el historial de reglas puedes volver a la version anterior con un clic.
+  4. Entra a Seguridad (menu, solo admin) y pulsa "Volver a revisar".
+
+Despues de subir: abre el sitio con Ctrl+F5 una vez.
+
+
+IMPLEMENTACION DE ROLES Y PERMISOS (RBAC) - 2026-11-08
+======================================================
+
+Cambios incluidos:
+- Nuevo rol MASTER reconocido cuando el servidor de autenticacion devuelve role="master".
+- MASTER tiene acceso completo en la interfaz y no se puede crear desde el formulario.
+- Los administradores pueden gestionar cuentas normales y asignar permisos individuales.
+- Los administradores no pueden crear, modificar, eliminar ni desactivar cuentas MASTER.
+- Se agrego matriz de permisos por usuario y controles para secciones/operaciones sensibles.
+- Se conserva la estructura de datos, inventarios, compras, folios, Kardex, respaldos y sincronizacion existentes.
+
+IMPORTANTE: COMPLETAR SEGURIDAD DEL SERVIDOR ANTES DE USAR EN PRODUCCION
+-----------------------------------------------------------------------
+Esta carpeta NO incluye el codigo del servicio de autenticacion
+(compra-pro-security.onrender.com). El navegador no puede convertir por si solo
+una cuenta en MASTER de forma segura. El administrador del servidor debe:
+
+1. Asignar role="master" unicamente a la cuenta propietaria en la base de usuarios
+   del servicio de autenticacion.
+2. Hacer que /auth/login devuelva role y permissions desde la base de datos
+   del servidor (no confiar en permisos enviados por el navegador).
+3. Impedir en el servidor que administradores creen, editen, desactiven o
+   eliminen al MASTER y que usuarios no autorizados cambien sus propios roles.
+4. Emitir custom claims verificables para Firebase (por ejemplo role y permisos)
+   y validar esas claims en database.rules.json. Las reglas actuales solo
+   comprueban auth != null; por tanto, cualquier usuario autenticado puede
+   leer/escribir la sala. NO se afirma que la base Firebase ya este protegida
+   por permisos individuales.
+5. No publicar reglas que exijan claims hasta que el servidor las emita,
+   porque se bloquearia la sincronizacion de todas las computadoras.
+
+La matriz de permisos de esta version controla la interfaz y las operaciones
+del cliente. La seguridad definitiva contra llamadas directas a Firebase
+requiere completar los puntos anteriores en el servidor y probarlos con
+cuentas reales MASTER, ADMIN y USUARIO.
+
+Pruebas ejecutadas en este paquete:
+- Validacion sintactica JavaScript con Node.js para los cuatro archivos JS.
+- Verificacion de estructura y referencias principales de los archivos.
+- Verificacion de existencia de recursos locales referenciados por index.html.
+No se pudo ejecutar una prueba de extremo a extremo contra Firebase ni contra
+el servicio remoto de autenticacion desde este entorno.
