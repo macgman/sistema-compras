@@ -249,6 +249,7 @@ const COMPRA_USER_DEFAULTS = [
 const COMPRA_ADMIN_DEFAULTS = COMPRA_PERMISSIONS.map(p => p[0])
   .filter(p => !['system.reset'].includes(p));
 function isMasterUser(user = currentUser) { return !!user && user.role === 'master'; }
+function hasAnyPermission(keys, user = currentUser) { return keys.some(key => userHasPermission(key, user)); }
 function defaultPermissionsForRole(role) {
   if (role === 'master') return COMPRA_PERMISSIONS.map(p => p[0]);
   if (role === 'admin') return COMPRA_ADMIN_DEFAULTS.slice();
@@ -257,6 +258,7 @@ function defaultPermissionsForRole(role) {
 }
 function userHasPermission(permission, user = currentUser) {
   if (!user) return false;
+  if (permission === 'system.reset') return user.role === 'master';
   if (user.role === 'master') return true;
   const list = Array.isArray(user.permissions) ? user.permissions : defaultPermissionsForRole(user.role);
   return list.includes(permission);
@@ -276,23 +278,74 @@ function renderPermissionEditor(selected = COMPRA_USER_DEFAULTS) {
   const host = document.getElementById('user-permissions');
   if (!host) return;
   const allowed = new Set(Array.isArray(selected) ? selected : []);
-  host.innerHTML = COMPRA_PERMISSIONS.map(([key,label]) => `
+  host.innerHTML = COMPRA_PERMISSIONS.map(([key,label]) => {
+    const masterOnly = key === 'system.reset';
+    const checked = masterOnly ? false : allowed.has(key);
+    return `
     <label class="permission-option">
-      <input type="checkbox" name="user-permission" value="${key}" ${allowed.has(key) ? 'checked' : ''}>
-      <span>${label}</span>
-    </label>`).join('');
+      <input type="checkbox" name="user-permission" value="${key}" ${checked ? 'checked' : ''} ${masterOnly ? 'disabled title="Exclusivo de MASTER"' : ''}>
+      <span>${label}${masterOnly ? ' (exclusivo MASTER)' : ''}</span>
+    </label>`;
+  }).join('');
 }
 function readPermissionEditor() {
-  return [...document.querySelectorAll('#user-permissions input[name="user-permission"]:checked')].map(x => x.value);
+  return [...document.querySelectorAll('#user-permissions input[name="user-permission"]:checked')]
+    .map(x => x.value).filter(x => x !== 'system.reset');
 }
 function applyGranularPermissions() {
-  const setVisible = (el, visible) => {
+  const setVisible = (el, visible, displayValue = '') => {
+    if (!el) return;
     el.hidden = !visible;
-    if (visible) el.style.removeProperty('display');
-    else el.style.setProperty('display', 'none', 'important');
+    el.classList.remove('admin-only');
+    if (visible) {
+      if (displayValue) el.style.setProperty('display', displayValue, 'important');
+      else el.style.removeProperty('display');
+    } else {
+      el.style.setProperty('display', 'none', 'important');
+    }
   };
-  document.querySelectorAll('[data-permission]').forEach(el => setVisible(el, userHasPermission(el.dataset.permission)));
+  document.querySelectorAll('[data-permission]').forEach(el => {
+    const navAccess = {
+      'nav-config': ['users.manage','settings.manage','backup.export','backup.restore'],
+      'nav-ordenes': ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
+      'nav-seguridad': ['users.manage'],
+      'nav-vale-inventario': ['inventory.view','vouchers.manage'],
+      'nav-inventario': ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
+      'nav-ventas': ['purchases.create','purchases.edit'],
+      'nav-historial-ventas': ['purchases.view','purchases.edit','purchases.delete'],
+      'nav-movimientos': ['movements.view','movements.edit'],
+      'nav-kardex': ['kardex.view','kardex.adjust']
+    }[el.id];
+    setVisible(el, navAccess ? hasAnyPermission(navAccess) : (el.dataset.permission === 'inventory.edit-or-delete' ? hasAnyPermission(['inventory.edit','inventory.delete']) : userHasPermission(el.dataset.permission)));
+  });
+  const config = document.getElementById('section-config');
+  if (config) {
+    const userCard = config.querySelector(':scope > .net-box');
+    const connectionCard = config.querySelector('.net-grid-card > .net-box:first-child');
+    setVisible(userCard, userHasPermission('users.manage'));
+    setVisible(connectionCard, userHasPermission('settings.manage'));
+  }
   document.querySelectorAll('[data-master-only]').forEach(el => setVisible(el, isMasterUser()));
+  setVisible(document.getElementById('nav-ordenes'),
+    hasAnyPermission(['purchases.view','purchases.create','purchases.edit','purchases.delete']));
+  setVisible(document.getElementById('nav-stock-minimo'), userHasPermission('inventory.view'));
+  setVisible(document.querySelector('#section-inventario button[onclick*="openProductModal"]'), userHasPermission('inventory.create'), 'inline-flex');
+  setVisible(document.querySelector('#section-inventario button[onclick*="bulk-excel-input"]'), userHasPermission('inventory.import'), 'inline-flex');
+  setVisible(document.getElementById('btn-delete-prod'), userHasPermission('inventory.delete'), 'inline-flex');
+  setVisible(document.querySelector('#section-inventario .inventario-table th.admin-only'),
+    ['inventory.edit','inventory.create','inventory.delete'].some(k => userHasPermission(k)), 'table-cell');
+  setVisible(document.querySelector('#section-movimientos th.admin-only'), userHasPermission('movements.edit'), 'table-cell');
+  setVisible(document.querySelector('#modal-movimiento button[onclick*="saveMovChanges"]'), userHasPermission('movements.edit'), 'inline-flex');
+  const valeSection = document.getElementById('section-vale-inventario');
+  if (valeSection) {
+    const manage = userHasPermission('vouchers.manage');
+    const report = userHasPermission('reports.export');
+    setVisible(valeSection.querySelector('button[onclick*="openValeInventoryMaterialForm"]'), manage, 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-excel-input"]'), manage, 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-json-input"]'), manage, 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="exportValeInventoryExcel"]'), report, 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="exportValeInventoryJSON"]'), report, 'inline-flex');
+  }
 }
 
 
@@ -760,6 +813,7 @@ function initPeerNetwork() {
 }
 
 async function saveCloudRoom() {
+  if (!requirePermission('settings.manage')) return;
   const input = document.getElementById('cloud-room-input').value.trim();
   if (!input) {
     showToast('Ingrese una clave de sala', 'error');
@@ -1068,6 +1122,7 @@ function closeScannerModal() {
 // MOTOR 5: CARGA MASIVA DESDE EXCEL (.XLSX / .CSV)
 // =============================================================
 async function importBulkExcel(input) {
+  if (!requirePermission('inventory.import')) { if (input) input.value = ''; return; }
   const file = input.files && input.files[0];
   if (!file) return;
 
@@ -1744,7 +1799,7 @@ async function saveUserData() {
   const pass = document.getElementById('user-password').value.trim();
   const role = document.getElementById('user-role').value;
   if (role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede crear o asignar administradores.', 'error'); return; }
-  const permissions = readPermissionEditor();
+  const permissions = readPermissionEditor().filter(permission => permission !== 'system.reset');
 
   if (!name || !username) {
     showToast('Complete el nombre y el usuario', 'error');
@@ -2060,6 +2115,7 @@ function renderVentasMaterial() {
 }
 
 async function exportVentasMaterialExcel() {
+  if (!requirePermission('reports.export')) return;
   const pid = document.getElementById('vm-product-select')?.value || 'all';
   const prod = products.find(p => String(p.id) === String(pid));
   const fromDate = (document.getElementById('vm-date-from')?.value || '').trim();
@@ -2126,9 +2182,24 @@ function showSection(name) {
     dashboard:'dashboard.view', inventario:'inventory.view', 'vale-inventario':'inventory.view',
     'inv-fisico':'physical.manage', ventas:'purchases.create', 'vale-manual':'vouchers.manage',
     'historial-ventas':'purchases.view', 'ventas-material':'reports.export',
-    movimientos:'movements.view', kardex:'kardex.view', config:'users.manage'
+    movimientos:'movements.view', kardex:'kardex.view', config:'settings.manage',
+    'stock-minimo':'inventory.view', ordenes:'purchases.create', seguridad:'users.manage'
   }[name];
-  if (sectionPermission && !userHasPermission(sectionPermission)) {
+  const sectionAlternatives = {
+    inventario: ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
+    'vale-inventario': ['inventory.view','vouchers.manage'],
+    ventas: ['purchases.create','purchases.edit'],
+    'historial-ventas': ['purchases.view','purchases.edit','purchases.delete'],
+    ordenes: ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
+    movimientos: ['movements.view','movements.edit'],
+    kardex: ['kardex.view','kardex.adjust'],
+    config: ['users.manage','settings.manage','backup.export','backup.restore']
+  };
+  if (sectionAlternatives[name]) {
+    if (!hasAnyPermission(sectionAlternatives[name])) {
+      showToast('No tienes permiso para acceder a esta sección.', 'error'); return;
+    }
+  } else if (sectionPermission && !userHasPermission(sectionPermission)) {
     showToast('No tienes permiso para acceder a esta sección.', 'error'); return;
   }
 
@@ -2307,15 +2378,16 @@ function renderInventario() {
               ? '<span class="badge badge-critical"><i class="fas fa-box-open"></i> AGOTADO</span>'
               : '<span class="badge badge-unlocked"><i class="fas fa-lock-open"></i> DISPONIBLE</span>')
       }</td>
-      <td class="admin-only">
+      <td>
         <div style="display:flex; gap:7px; flex-wrap:wrap;">
-          <button class="btn btn-entry btn-sm" onclick="openEntradaModal(${p.id})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
-          <button class="btn btn-outline btn-sm" onclick="openProductModal(${p.id})">Gestionar</button>
-          <button class="btn ${p.bloqueado ? 'btn-success' : 'btn-warning'} btn-sm" onclick="toggleProductLock(${p.id})"><i class="fas ${p.bloqueado ? 'fa-lock-open' : 'fa-lock'}"></i> ${p.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>
+          <button class="btn btn-entry btn-sm" data-permission="inventory.edit" onclick="openEntradaModal(${p.id})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
+          <button class="btn btn-outline btn-sm" data-permission="inventory.edit-or-delete" onclick="openProductModal(${p.id})">Gestionar</button>
+          <button class="btn ${p.bloqueado ? 'btn-success' : 'btn-warning'} btn-sm" data-permission="inventory.edit" onclick="toggleProductLock(${p.id})"><i class="fas ${p.bloqueado ? 'fa-lock-open' : 'fa-lock'}"></i> ${p.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>
         </div>
       </td>
     </tr>
   `).join('');
+  applyGranularPermissions();
   renderPagination('inv-pagination', invPage, Math.ceil(list.length/invPerPage), 'setInvPage');
 }
 
@@ -2346,7 +2418,11 @@ function toggleProductLock(id) {
 }
 
 function openProductModal(id) {
-  if (!requirePermission('inventory.create')) return;
+  if (id) {
+    if (!userHasPermission('inventory.edit') && !userHasPermission('inventory.delete')) {
+      showToast('No tienes permiso para gestionar este material.', 'error'); return;
+    }
+  } else if (!requirePermission('inventory.create')) return;
   
   const p = id ? products.find(x => x.id === id) : null;
   document.getElementById('prod-id').value = p ? p.id : '';
@@ -2356,6 +2432,8 @@ function openProductModal(id) {
   document.getElementById('prod-unidad').value = p ? p.unidad : '';
   document.getElementById('prod-descripcion').value = p ? p.descripcion : '';
   document.getElementById('prod-precio').value = p ? p.precio : '';
+  const minInput = document.getElementById('prod-stock-minimo');
+  if (minInput) minInput.value = p && typeof window.wrMin === 'function' ? window.wrMin(p) : 5;
   const stockInput = document.getElementById('prod-cantidad');
   stockInput.value = p ? p.cantidad : '';
   stockInput.readOnly = !!p;
@@ -2374,7 +2452,7 @@ function openProductModal(id) {
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('prod-fecha-entrada').value = p && p.fecha_entrada ? p.fecha_entrada : today;
   
-  document.getElementById('btn-delete-prod').style.display = p ? 'inline-flex' : 'none';
+  document.getElementById('btn-delete-prod').style.setProperty('display', p && userHasPermission('inventory.delete') ? 'inline-flex' : 'none', 'important');
   openModal('modal-producto');
 }
 
@@ -2390,6 +2468,8 @@ function saveProduct() {
   const fechaEntrada = document.getElementById('prod-fecha-entrada').value || (factura ? todayISO() : '');
   const precio = Number(document.getElementById('prod-precio').value);
   const qty = Number(document.getElementById('prod-cantidad').value);
+  const minRaw = document.getElementById('prod-stock-minimo')?.value;
+  const stockMinimo = minRaw === '' || minRaw == null ? 5 : Number(minRaw);
 
   if (!clave || !descripcion || !unidad) {
     showToast('Complete clave, descripcion y unidad', 'error');
@@ -2397,6 +2477,10 @@ function saveProduct() {
   }
   if (!Number.isFinite(precio) || precio < 0 || !Number.isFinite(qty) || qty < 0) {
     showToast('Precio y stock deben ser numeros validos y no negativos', 'error');
+    return;
+  }
+  if (!Number.isInteger(stockMinimo) || stockMinimo < 0) {
+    showToast('El stock mínimo debe ser un número entero igual o mayor que cero', 'error');
     return;
   }
 
@@ -2412,6 +2496,11 @@ function saveProduct() {
     const newP = { id: now, bloqueado: false, ...d };
     products.push(newP);
     if (qty > 0) addMov('ENTRADA', newP.id, qty, 'Nuevo producto', factura, '', { fecha_factura: fechaEntrada });
+  }
+
+  const savedProduct = id ? products.find(x => String(x.id) === String(id)) : products[products.length - 1];
+  if (savedProduct && typeof window.wrSetMin === 'function') {
+    window.wrSetMin(savedProduct, stockMinimo);
   }
 
   closeModal('modal-producto');
@@ -2537,7 +2626,7 @@ function renderInvFRow(id, sys, el) {
   c.style.color = d > 0 ? '#059669' : d < 0 ? '#ef4444' : '#64748b'; 
 }
 
-function resetInvFisico() { ifCounts = {}; renderInvFisico(); }
+function resetInvFisico() { if (!requirePermission('physical.manage')) return; ifCounts = {}; renderInvFisico(); }
 
 function applyInvFisico() {
   if (!requirePermission('physical.manage')) return;
@@ -2834,6 +2923,8 @@ async function prepareFolioForNewVenta(capturedFolio) {
 
 let _guardandoVenta = false;
 async function saveVenta() {
+  const salePermission = (editingVentaId !== null && editingVentaId !== undefined) ? 'purchases.edit' : 'purchases.create';
+  if (!requirePermission(salePermission)) return;
   // Candado: evita que varios clics ejecuten varios guardados a la vez.
   if (_guardandoVenta) return;
   _guardandoVenta = true;
@@ -3153,13 +3244,14 @@ function renderMovimientos() {
         <td><strong>${esc(cliente || '—')}</strong>${folio ? `<br><small style="color:#64748b">${refLabel}: ${esc(folio)}</small>` : ''}</td>
         <td style="font-weight:700;">${Number(m.qty) ? m.qty : '—'}</td>
         <td><small style="font-weight:700; color:#064e3b;">${esc(m.user || 'Sistema')}</small></td>
-        <td class="admin-only"><div style="display:flex; gap:5px;">
+        <td data-permission="movements.edit"><div style="display:flex; gap:5px;">
           <button class="btn btn-outline btn-sm" onclick="openMovModal('${m.id}')"><i class="fas fa-eye"></i></button>
           <button class="btn btn-danger btn-sm" onclick="deleteMov('${m.id}')"><i class="fas fa-trash"></i></button>
         </div></td>
       </tr>
     `;
   }).join('');
+  applyGranularPermissions();
 }
 
 function ensureKardexBaseline(product, stockOverride) {
@@ -3271,7 +3363,14 @@ function renderKardex() {
   const count = document.getElementById('kardex-count');
   if (count) count.textContent = `Mostrando ${Math.min(filtered.length,500)} de ${filtered.length} movimientos con costo y saldo. Los movimientos previos a la activación se conservan en el historial general, pero no se recalculan como Kardex valorizado.`;
   const tools = document.getElementById('kardex-admin-tools');
-  if (tools) tools.style.display = userHasPermission('kardex.adjust') || userHasPermission('reports.export') ? 'flex' : 'none';
+  if (tools) {
+    tools.style.display = userHasPermission('kardex.adjust') || userHasPermission('reports.export') ? 'flex' : 'none';
+    const adjustmentButton = tools.querySelector('button[onclick*="openKardexAdjustment"]');
+    const exportButton = tools.querySelector('button[onclick*="exportKardexExcel"]');
+    const printButton = tools.querySelector('button[onclick*="printKardex"]');
+    [adjustmentButton].forEach(el => { if (el) { el.hidden = !userHasPermission('kardex.adjust'); el.style.setProperty('display', userHasPermission('kardex.adjust') ? 'inline-flex' : 'none', 'important'); } });
+    [exportButton, printButton].forEach(el => { if (el) { el.hidden = !userHasPermission('reports.export'); el.style.setProperty('display', userHasPermission('reports.export') ? 'inline-flex' : 'none', 'important'); } });
+  }
 }
 
 function openKardexAdjustment() {
@@ -3331,6 +3430,7 @@ async function exportKardexExcel() {
 }
 
 function printKardex() {
+  if (!requirePermission('reports.export')) return;
   const rows = getKardexRows().sort((a,b)=>(a.kardexTimestamp||0)-(b.kardexTimestamp||0));
   const win = window.open('', '_blank');
   if (!win) { showToast('Permita las ventanas emergentes para imprimir el Kardex','error'); return; }
@@ -3340,6 +3440,7 @@ function printKardex() {
 }
 
 function openMovModal(id) {
+  if (!requirePermission('movements.edit')) return;
   const m = movimientos.find(x => String(x.id) === String(id));
   if (!m) { showToast('Movimiento no encontrado', 'error'); return; }
   document.getElementById('mov-id').value = m.id;
@@ -3367,6 +3468,7 @@ function saveMovChanges() {
 }
 
 function deleteMov(id) {
+  if (!requirePermission('movements.edit')) return;
   if (confirm('¿Eliminar este registro de movimiento? No afectara el stock actual.')) {
     const target = movimientos.find(x => String(x.id) === String(id));
     movimientos = movimientos.filter(x => String(x.id) !== String(id)); 
@@ -3432,12 +3534,13 @@ function renderHistorialVentas() {
         <div style="font-weight:800; color:#059669; margin-bottom:8px;">$${fmt(v.total)}</div>
         <div style="display:flex; gap:8px;">
           <button type="button" class="btn btn-outline btn-sm historial-action" data-action="view" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-eye"></i> Ver</button>
-          <button type="button" class="btn btn-primary btn-sm admin-only admin-inline historial-action" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
-          <button type="button" class="btn btn-danger btn-sm admin-only admin-inline historial-action" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-primary btn-sm admin-inline historial-action" data-permission="purchases.edit" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
+          <button type="button" class="btn btn-danger btn-sm admin-inline historial-action" data-permission="purchases.delete" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     </div>`;
   }).join('');
+  applyGranularPermissions();
 
   // Los botones del historial usan delegación de eventos en lugar de
   // onclick inline. Así no dependen de comillas/IDs incrustados en el HTML
@@ -3459,9 +3562,11 @@ function renderHistorialVentas() {
         if (type === 'vale') viewValeManual(id);
         else viewVenta(Number.isNaN(Number(id)) ? id : Number(id));
       } else if (action === 'edit') {
+        if (!requirePermission(type === 'vale' ? 'vouchers.manage' : 'purchases.edit')) return;
         if (type === 'vale') editValeManual(id);
         else editVenta(id);
       } else if (action === 'delete') {
+        if (!requirePermission(type === 'vale' ? 'vouchers.manage' : 'purchases.delete')) return;
         if (type === 'vale') deleteValeManual(id);
         else deleteVenta(id);
       }
@@ -4539,6 +4644,7 @@ async function openFolioXlsm(v) {
 }
 
 async function exportCurrentVentaF361() {
+  if (!requirePermission('reports.export')) return;
   if (!currentViewingVenta) {
     showToast('No hay un folio seleccionado','error');
     return;
@@ -4582,6 +4688,7 @@ async function exportCurrentVentaF361() {
 }
 
 async function exportF361Batch() {
+  if (!requirePermission('reports.export')) return;
   const list=f361GetSelectedVentas();
   if(!list.length){
     const mode=document.getElementById('f361-period-mode')?.value || 'day';
@@ -4761,6 +4868,7 @@ function viewValeManual(id) {
 }
 
 async function exportCurrentValeManualF361() {
+  if (!requirePermission('reports.export')) return;
   if (!currentViewingValeManual) {
     showToast('No hay un vale manual seleccionado', 'error');
     return;
@@ -4847,6 +4955,7 @@ function fallbackCopyText(text) {
 }
 
 function editVenta(id) {
+  if (!requirePermission('purchases.edit')) return;
   const v = ventas.find(x => String(x.id) === String(id));
   if (!v) { showToast('Compra no encontrada', 'error'); return; }
   editingVentaId = v.id; ventaItems = JSON.parse(JSON.stringify(v.items || []));
@@ -4855,6 +4964,7 @@ function editVenta(id) {
 }
 
 async function deleteVenta(id) {
+  if (!requirePermission('purchases.delete')) return;
   if (!confirm('¿Eliminar compra? Se reintegrara el stock a los productos correspondientes.')) return;
 
   const v = ventas.find(x => String(x.id) === String(id));
@@ -4988,8 +5098,8 @@ function normalizeValeInventoryItem(raw = {}) {
 }
 
 function openValeInventoryMaterialForm(itemId = null) {
-  if (itemId != null && !canManageValeInventory()) {
-    showToast('Solo el administrador puede gestionar materiales del Inventario Vale / Donación', 'error');
+  if (!canManageValeInventory()) {
+    showToast('No tienes permiso para gestionar el Inventario Vale / Donación', 'error');
     return;
   }
   editingValeInventoryId = itemId;
@@ -5022,6 +5132,7 @@ function closeValeInventoryMaterialForm() {
 }
 
 async function saveValeInventoryMaterial() {
+  if (!canManageValeInventory()) { showToast('No tienes permiso para gestionar el Inventario Vale / Donación', 'error'); return; }
   const existingItem = editingValeInventoryId == null ? null : valesInventario.find(x => String(x.id) === String(editingValeInventoryId));
   const item = normalizeValeInventoryItem({
     id: editingValeInventoryId ?? (Date.now() + Math.random()),
@@ -5063,14 +5174,15 @@ function renderValeInventario() {
     <td><span class="clave-cell">${esc(i.clave || '—')}</span></td>
     <td>${esc(i.descripcion)}</td><td>${esc(i.unidad || 'PIEZA')}</td>
     <td>$${fmt(i.precio)}</td><td>${Number(i.existencia)||0}</td>
-    <td class="admin-only">
+    <td>
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
-        <button type="button" class="btn btn-entry btn-sm" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
-        <button type="button" class="btn btn-outline btn-sm" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
-        <button type="button" class="btn btn-danger btn-sm" data-vale-delete-id="${esc(i.id)}"><i class="fas fa-trash"></i> Eliminar</button>
+        <button type="button" class="btn btn-entry btn-sm" data-permission="vouchers.manage" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
+        <button type="button" class="btn btn-outline btn-sm" data-permission="vouchers.manage" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
+        <button type="button" class="btn btn-danger btn-sm" data-permission="vouchers.manage" data-vale-delete-id="${esc(i.id)}"><i class="fas fa-trash"></i> Eliminar</button>
       </div>
     </td>
   </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; padding:28px; color:#94a3b8; font-weight:700;">No hay materiales en este inventario.</td></tr>';
+  applyGranularPermissions();
 }
 
 document.addEventListener('click', function(e) {
@@ -5089,7 +5201,7 @@ document.addEventListener('click', function(e) {
 
 function openValeInventoryEntryModal(id) {
   if (!canManageValeInventory()) {
-    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    showToast('No tienes permiso para registrar entradas de material', 'error');
     return;
   }
   const item = valesInventario.find(x => String(x.id) === String(id));
@@ -5121,7 +5233,7 @@ function updateValeInventoryEntryPreview() {
 
 async function saveValeInventoryEntry() {
   if (!canManageValeInventory()) {
-    showToast('Solo el administrador puede registrar entradas de material', 'error');
+    showToast('No tienes permiso para registrar entradas de material', 'error');
     return;
   }
   const id = document.getElementById('vale-entrada-inv-id')?.value;
@@ -5158,7 +5270,7 @@ async function saveValeInventoryEntry() {
 
 async function deleteValeInventoryMaterial(id) {
   if (!canManageValeInventory()) {
-    showToast('Solo el administrador puede eliminar materiales del Inventario Vale / Donación', 'error');
+    showToast('No tienes permiso para eliminar materiales del Inventario Vale / Donación', 'error');
     return;
   }
 
@@ -5308,6 +5420,7 @@ function addValeInventoryItemToDraft(id) {
 }
 
 async function importValeInventoryExcel(input) {
+  if (!canManageValeInventory()) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
   const file = input?.files?.[0];
   if (!file) return;
 
@@ -5399,6 +5512,7 @@ async function importValeInventoryExcel(input) {
 }
 
 async function exportValeInventoryExcel() {
+  if (!requirePermission('reports.export')) return;
   const items = Array.isArray(valesInventario) ? valesInventario : [];
 
   if (typeof ExcelJS === 'undefined') {
@@ -5445,6 +5559,7 @@ async function exportValeInventoryExcel() {
 }
 
 function exportValeInventoryJSON() {
+  if (!requirePermission('reports.export')) return;
   const data = { system: 'VALE_MANUAL_DONACION_INVENTARIO', version: 1, timestamp: new Date().toISOString(), valesInventario: Array.isArray(valesInventario) ? valesInventario : [] };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `inventario_vale_donacion_${todayISO()}.json`; link.click();
@@ -5452,6 +5567,7 @@ function exportValeInventoryJSON() {
 }
 
 function importValeInventoryJSON(input) {
+  if (!canManageValeInventory()) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
   const file = input?.files?.[0];
   if (!file) return;
   const reader = new FileReader();
@@ -5562,6 +5678,7 @@ function removeValeManualItem(idx) {
 }
 
 function editValeManual(id) {
+  if (!requirePermission('vouchers.manage')) return;
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === String(id));
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
   editingValeManualId = v.id;
@@ -5598,6 +5715,7 @@ function editValeManual(id) {
 }
 
 async function deleteValeManual(id) {
+  if (!requirePermission('vouchers.manage')) return;
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === String(id));
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
   if (!confirm(`¿Eliminar el vale manual ${v.folio}?`)) return;
@@ -6288,6 +6406,7 @@ function updateReportPreview() {
 }
 
 function openReportModal(preselectedType = '') {
+  if (!requirePermission('reports.export')) return;
   const typeEl = document.getElementById('report-type');
   if (typeEl && preselectedType && REPORT_DESCRIPTIONS[preselectedType]) typeEl.value = preselectedType;
   updateReportPreview();
@@ -6590,6 +6709,7 @@ async function downloadStyledWorkbook(sheetsConfig, filename) {
 }
 
 async function exportSelectedReport() {
+  if (!requirePermission('reports.export')) return;
   const type = document.getElementById('report-type')?.value || 'full';
   const range = reportDateRange();
   if (range.from && range.to && range.from > range.to) {
