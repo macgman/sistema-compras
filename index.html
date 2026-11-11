@@ -18,7 +18,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
 <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<link rel="stylesheet" href="css/app.css?v=20261108-permissions-ui">
+<link rel="stylesheet" href="css/app.css?v=20261110-permissions-granular">
 
 
 
@@ -377,7 +377,7 @@
           <option value="solo-venta">Tipo: Solo ventas</option>
           <option value="solo-vale">Tipo: Solo vales manuales</option>
         </select>
-        <button class="btn btn-success" onclick="openReportModal('sold')"><i class="fas fa-file-excel"></i> Exportar Compras</button>
+        <button class="btn btn-success" data-permission="reports.export" onclick="openReportModal('sold')"><i class="fas fa-file-excel"></i> Exportar Compras</button>
       </div>
       <div id="hv-list"></div>
     </div>
@@ -598,6 +598,7 @@
             <input type="file" id="backup-file" style="display:none;" onchange="importBackup(this)">
             <button class="btn btn-outline" style="width:100%; justify-content:center;" onclick="document.getElementById('backup-file').click()"><i class="fas fa-upload"></i> Restaurar Base de Datos</button>
             <small style="display:block; color:#64748b; margin-top:8px;">Importe archivos .json generados previamente.</small>
+            <small id="backup-delete-note" style="display:block; color:#92400e; margin-top:8px;">Los archivos de respaldo descargados se eliminan desde el dispositivo. La eliminación desde el sistema requiere habilitar almacenamiento centralizado de respaldos.</small>
           </div>
 
           <!-- ZONA DE PELIGRO: Reinicio total para reutilizar el sistema en otro proyecto -->
@@ -661,7 +662,7 @@
       <div class="form-group full">
         <label>Permisos individuales</label>
         <div id="user-permissions" class="permission-grid" aria-label="Permisos individuales"></div>
-        <small style="color:#64748b;">Selecciona las funciones que podrá utilizar este usuario. Los permisos MASTER son exclusivos y no se asignan desde este formulario.</small>
+        <small style="color:#64748b;">Selecciona permisos por módulo. ADMINISTRADOR inicia con todos los permisos disponibles; MASTER puede retirar los que no necesite. Los permisos MASTER son exclusivos y no se asignan desde este formulario.</small>
       </div>
     </div>
     <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
@@ -970,10 +971,10 @@
 
 <div id="toast"></div>
 
-<script src="js/app.js?v=20261110-rbac-entradas"></script>
+<script src="js/app.js?v=20261111-session-fix-2"></script>
 
-<script id="pro-ui-js" src="js/pro-ui.js?v=20261110-rbac-entradas"></script>
-<script src="js/capa-web.js?v=20261110-rbac-entradas"></script>
-<script src="js/modulos.js?v=20261110-rbac-entradas"></script>
+<script id="pro-ui-js" src="js/pro-ui.js?v=20261111"></script>
+<script src="js/capa-web.js?v=20261111-session-fix-2"></script>
+<script src="js/modulos.js?v=20261110-permissions-granular"></script>
 </body>
 </html>
