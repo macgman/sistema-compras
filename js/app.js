@@ -217,36 +217,64 @@ let users = DEFAULT_USERS.map(u => ({...u}));
 // La cuenta MASTER debe ser provisionada por el servidor de autenticación.
 // Nunca se concede MASTER desde el formulario de usuarios.
 // =============================================================
-const COMPRA_PERMISSIONS = [
-  ['dashboard.view','Dashboard'],
-  ['inventory.view','Consultar inventario'],
-  ['inventory.create','Agregar materiales'],
-  ['inventory.edit','Modificar materiales'],
-  ['inventory.delete','Eliminar materiales'],
-  ['inventory.import','Carga masiva / importar'],
-  ['inventory.receive','Registrar entradas por remisión'],
-  ['inventory.receipts.view','Consultar historial de entradas'],
-  ['physical.manage','Inventario físico'],
-  ['purchases.create','Registrar compras'],
-  ['purchases.view','Consultar historial de compras'],
-  ['purchases.edit','Modificar compras'],
-  ['purchases.delete','Eliminar compras'],
-  ['vouchers.manage','Vales manuales y donaciones'],
-  ['movements.view','Consultar movimientos'],
-  ['movements.edit','Modificar movimientos'],
-  ['kardex.view','Consultar Kardex'],
-  ['kardex.adjust','Ajustes de Kardex'],
-  ['reports.export','Exportar reportes'],
-  ['folios.edit','Modificar folios'],
-  ['users.manage','Gestionar usuarios'],
-  ['settings.manage','Configuración y conexión'],
-  ['backup.export','Crear respaldos'],
-  ['backup.restore','Restaurar respaldos'],
-  ['system.reset','Borrar todos los datos']
+// Matriz granular de permisos. Los permisos antiguos se migran mediante
+// LEGACY_PERMISSION_ALIASES para no romper usuarios ya existentes.
+const COMPRA_PERMISSION_GROUPS = [
+  ['Dashboard', [
+    ['dashboard.view','Dashboard']
+  ]],
+  ['Inventario', [
+    ['inventory.view','Consultar inventario'], ['inventory.create','Agregar materiales'],
+    ['inventory.edit','Modificar materiales'], ['inventory.delete','Eliminar materiales'],
+    ['inventory.import','Carga masiva / importar']
+  ]],
+  ['Inventario físico', [
+    ['physical.view','Consultar inventario físico'], ['physical.edit','Modificar inventario físico']
+  ]],
+  ['Compras', [
+    ['purchases.create','Registrar compras'], ['purchases.view','Consultar historial de compras'],
+    ['purchases.edit','Modificar compras'], ['purchases.delete','Eliminar compras']
+  ]],
+  ['Vales manuales y donaciones', [
+    ['vouchers.view','Consultar vales'], ['vouchers.create','Crear vales'],
+    ['vouchers.edit','Modificar vales'], ['vouchers.delete','Eliminar vales']
+  ]],
+  ['Movimientos y Kardex', [
+    ['movements.view','Consultar movimientos'], ['movements.edit','Modificar movimientos'],
+    ['kardex.view','Consultar Kardex'], ['kardex.adjust','Ajustes de Kardex']
+  ]],
+  ['Reportes y folios', [
+    ['reports.export','Exportar reportes'], ['folios.edit','Modificar folios']
+  ]],
+  ['Usuarios y configuración', [
+    ['users.manage','Gestionar usuarios'], ['settings.view','Consultar configuración'],
+    ['settings.connection.edit','Modificar conexión']
+  ]],
+  ['Respaldos', [
+    ['backup.view','Consultar respaldos'], ['backup.export','Crear respaldos'],
+    ['backup.restore','Restaurar respaldos'], ['backup.delete','Eliminar respaldos (requiere almacenamiento central)']
+  ]],
+  ['Sistema', [
+    ['system.reset','Borrar todos los datos (exclusivo MASTER)']
+  ]]
 ];
+const COMPRA_PERMISSIONS = COMPRA_PERMISSION_GROUPS.flatMap(group => group[1]);
+const LEGACY_PERMISSION_ALIASES = {
+  'physical.manage': ['physical.view','physical.edit'],
+  'vouchers.manage': ['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete'],
+  'settings.manage': ['settings.view','settings.connection.edit']
+};
+function expandPermissionAliases(list) {
+  const expanded = [];
+  (Array.isArray(list) ? list : []).forEach(key => {
+    if (LEGACY_PERMISSION_ALIASES[key]) expanded.push(...LEGACY_PERMISSION_ALIASES[key]);
+    else if (COMPRA_PERMISSIONS.some(p => p[0] === key)) expanded.push(key);
+  });
+  return [...new Set(expanded)];
+}
 const COMPRA_USER_DEFAULTS = [
   'dashboard.view','inventory.view','purchases.create','purchases.view',
-  'vouchers.manage','movements.view','kardex.view','reports.export'
+  'vouchers.view','vouchers.create','movements.view','kardex.view','reports.export'
 ];
 const COMPRA_ADMIN_DEFAULTS = COMPRA_PERMISSIONS.map(p => p[0])
   .filter(p => !['system.reset'].includes(p));
@@ -262,8 +290,9 @@ function userHasPermission(permission, user = currentUser) {
   if (!user) return false;
   if (permission === 'system.reset') return user.role === 'master';
   if (user.role === 'master') return true;
-  const list = Array.isArray(user.permissions) ? user.permissions : defaultPermissionsForRole(user.role);
-  return list.includes(permission);
+  const list = expandPermissionAliases(Array.isArray(user.permissions) ? user.permissions : defaultPermissionsForRole(user.role));
+  const aliases = LEGACY_PERMISSION_ALIASES[permission] || [];
+  return list.includes(permission) || aliases.some(key => list.includes(key));
 }
 function requirePermission(permission, message = 'No tienes permiso para realizar esta acción.') {
   if (userHasPermission(permission)) return true;
@@ -272,23 +301,39 @@ function requirePermission(permission, message = 'No tienes permiso para realiza
 }
 function normalizeUserPermissions(user) {
   if (!user || user.role === 'master') return user;
-  if (!Array.isArray(user.permissions) || (user.role === 'admin' && user.permissions.length === 0)) user.permissions = defaultPermissionsForRole(user.role);
-  user.permissions = [...new Set(user.permissions.filter(p => COMPRA_PERMISSIONS.some(x => x[0] === p)))];
+  if (!Array.isArray(user.permissions)) user.permissions = defaultPermissionsForRole(user.role);
+  user.permissions = expandPermissionAliases(user.permissions).filter(p => p !== 'system.reset');
   return user;
 }
 function renderPermissionEditor(selected = COMPRA_USER_DEFAULTS) {
   const host = document.getElementById('user-permissions');
   if (!host) return;
-  const allowed = new Set(Array.isArray(selected) ? selected : []);
-  host.innerHTML = COMPRA_PERMISSIONS.map(([key,label]) => {
-    const masterOnly = key === 'system.reset';
-    const checked = masterOnly ? false : allowed.has(key);
-    return `
-    <label class="permission-option">
-      <input type="checkbox" name="user-permission" value="${key}" ${checked ? 'checked' : ''} ${masterOnly ? 'disabled title="Exclusivo de MASTER"' : ''}>
-      <span>${label}${masterOnly ? ' (exclusivo MASTER)' : ''}</span>
-    </label>`;
-  }).join('');
+  const allowed = new Set(expandPermissionAliases(selected));
+  host.innerHTML = `<div class="permission-toolbar"><label><input type="checkbox" id="permissions-select-all"> Seleccionar todos los permisos disponibles</label></div>` +
+    COMPRA_PERMISSION_GROUPS.map(([group, permissions], index) => {
+      const keys = permissions.map(p => p[0]).filter(k => k !== 'system.reset');
+      const allChecked = keys.length > 0 && keys.every(k => allowed.has(k));
+      return `<section class="permission-group" data-permission-group-wrap="${index}">
+        <label class="permission-group-title"><input type="checkbox" data-permission-group="${index}" ${allChecked ? 'checked' : ''}> ${group}</label>
+        <div class="permission-group-items">${permissions.map(([key,label]) => {
+          const masterOnly = key === 'system.reset';
+          const checked = masterOnly ? false : allowed.has(key);
+          return `<label class="permission-option"><input type="checkbox" name="user-permission" value="${key}" ${checked ? 'checked' : ''} ${masterOnly ? 'disabled title="Exclusivo de MASTER"' : ''}><span>${label}${masterOnly ? ' (exclusivo MASTER)' : ''}</span></label>`;
+        }).join('')}</div>
+      </section>`;
+    }).join('');
+  updatePermissionGroupChecks();
+}
+function updatePermissionGroupChecks() {
+  const all = [...document.querySelectorAll('#user-permissions input[name="user-permission"]:not(:disabled)')];
+  const selectAll = document.getElementById('permissions-select-all');
+  if (selectAll) selectAll.checked = all.length > 0 && all.every(x => x.checked);
+  document.querySelectorAll('#user-permissions [data-permission-group]').forEach(groupBox => {
+    const group = groupBox.dataset.permissionGroup;
+    const items = [...document.querySelectorAll(`#user-permissions [data-permission-group-wrap="${group}"] input[name="user-permission"]:not(:disabled)` )];
+    groupBox.checked = items.length > 0 && items.every(x => x.checked);
+    groupBox.indeterminate = items.some(x => x.checked) && !groupBox.checked;
+  });
 }
 function readPermissionEditor() {
   return [...document.querySelectorAll('#user-permissions input[name="user-permission"]:checked')]
@@ -308,14 +353,13 @@ function applyGranularPermissions() {
   };
   document.querySelectorAll('[data-permission]').forEach(el => {
     const navAccess = {
-      'nav-config': ['users.manage','settings.manage','backup.export','backup.restore'],
+      'nav-config': ['users.manage','settings.view','settings.connection.edit','backup.view','backup.export','backup.restore','backup.delete'],
       'nav-ordenes': ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
-      'nav-entradas': ['inventory.receive','inventory.receipts.view'],
       'nav-seguridad': ['users.manage'],
-      'nav-vale-inventario': ['inventory.view','vouchers.manage'],
+      'nav-vale-inventario': ['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete'],
       'nav-inventario': ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
       'nav-ventas': ['purchases.create','purchases.edit'],
-      'nav-historial-ventas': ['purchases.view','purchases.edit','purchases.delete'],
+      'nav-historial-ventas': ['purchases.view','purchases.edit','purchases.delete','vouchers.view','vouchers.edit','vouchers.delete'],
       'nav-movimientos': ['movements.view','movements.edit'],
       'nav-kardex': ['kardex.view','kardex.adjust']
     }[el.id];
@@ -326,12 +370,35 @@ function applyGranularPermissions() {
     const userCard = config.querySelector(':scope > .net-box');
     const connectionCard = config.querySelector('.net-grid-card > .net-box:first-child');
     setVisible(userCard, userHasPermission('users.manage'));
-    setVisible(connectionCard, userHasPermission('settings.manage'));
+    setVisible(connectionCard, hasAnyPermission(['settings.view','settings.connection.edit']));
+    const backupCard = config.querySelector('.net-grid-card > .net-box:nth-child(2)');
+    setVisible(backupCard, hasAnyPermission(['backup.view','backup.export','backup.restore','backup.delete']));
+    if (connectionCard) {
+      const canEditConnection = userHasPermission('settings.connection.edit');
+      connectionCard.querySelectorAll('button').forEach(btn => setVisible(btn, canEditConnection, 'inline-flex'));
+      const roomInput = connectionCard.querySelector('#cloud-room-input');
+      if (roomInput) roomInput.disabled = !canEditConnection;
+    }
+    if (backupCard) {
+      const exportBtn = backupCard.querySelector('button[onclick*="exportBackup"]');
+      const restoreBtn = backupCard.querySelector('button[onclick*="backup-file"]');
+      setVisible(exportBtn, userHasPermission('backup.export'), 'inline-flex');
+      setVisible(restoreBtn, userHasPermission('backup.restore'), 'inline-flex');
+      setVisible(document.getElementById('backup-delete-note'), userHasPermission('backup.delete'));
+      const resetBtn = backupCard.querySelector('button[onclick*="openResetSystemModal"]');
+      setVisible(resetBtn, isMasterUser());
+    }
   }
   document.querySelectorAll('[data-master-only]').forEach(el => setVisible(el, isMasterUser()));
   setVisible(document.getElementById('nav-ordenes'),
     hasAnyPermission(['purchases.view','purchases.create','purchases.edit','purchases.delete']));
   setVisible(document.getElementById('nav-stock-minimo'), userHasPermission('inventory.view'));
+  setVisible(document.getElementById('nav-dashboard'), userHasPermission('dashboard.view'));
+  setVisible(document.getElementById('vale-mode-tab'), hasAnyPermission(['vouchers.create','vouchers.edit']));
+  setVisible(document.getElementById('nav-inv-fisico'), hasAnyPermission(['physical.view','physical.edit']));
+  setVisible(document.getElementById('nav-vale-inventario'), hasAnyPermission(['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete']));
+  setVisible(document.getElementById('nav-historial-ventas'), hasAnyPermission(['purchases.view','purchases.edit','purchases.delete','vouchers.view','vouchers.edit','vouchers.delete']));
+  setVisible(document.getElementById('nav-config'), hasAnyPermission(['users.manage','settings.view','settings.connection.edit','backup.view','backup.export','backup.restore','backup.delete']));
   setVisible(document.querySelector('#section-inventario button[onclick*="openProductModal"]'), userHasPermission('inventory.create'), 'inline-flex');
   setVisible(document.querySelector('#section-inventario button[onclick*="bulk-excel-input"]'), userHasPermission('inventory.import'), 'inline-flex');
   setVisible(document.getElementById('btn-delete-prod'), userHasPermission('inventory.delete'), 'inline-flex');
@@ -339,13 +406,19 @@ function applyGranularPermissions() {
     ['inventory.edit','inventory.create','inventory.delete'].some(k => userHasPermission(k)), 'table-cell');
   setVisible(document.querySelector('#section-movimientos th.admin-only'), userHasPermission('movements.edit'), 'table-cell');
   setVisible(document.querySelector('#modal-movimiento button[onclick*="saveMovChanges"]'), userHasPermission('movements.edit'), 'inline-flex');
+  const physicalSection = document.getElementById('section-inv-fisico');
+  if (physicalSection) {
+    const canEditPhysical = userHasPermission('physical.edit');
+    physicalSection.querySelectorAll('button').forEach(btn => setVisible(btn, canEditPhysical || !/applyInvFisico|resetInvFisico/.test(btn.getAttribute('onclick') || ''), 'inline-flex'));
+    physicalSection.querySelectorAll('#if-tbody input').forEach(input => { input.disabled = !canEditPhysical; input.title = canEditPhysical ? '' : 'Permiso de solo consulta'; });
+  }
   const valeSection = document.getElementById('section-vale-inventario');
   if (valeSection) {
-    const manage = userHasPermission('vouchers.manage');
+    const manage = hasAnyPermission(['vouchers.create','vouchers.edit','vouchers.delete']);
     const report = userHasPermission('reports.export');
-    setVisible(valeSection.querySelector('button[onclick*="openValeInventoryMaterialForm"]'), manage, 'inline-flex');
-    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-excel-input"]'), manage, 'inline-flex');
-    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-json-input"]'), manage, 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="openValeInventoryMaterialForm"]'), userHasPermission('vouchers.create') || userHasPermission('vouchers.edit'), 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-excel-input"]'), userHasPermission('vouchers.create'), 'inline-flex');
+    setVisible(valeSection.querySelector('button[onclick*="vale-inventory-json-input"]'), userHasPermission('vouchers.create'), 'inline-flex');
     setVisible(valeSection.querySelector('button[onclick*="exportValeInventoryExcel"]'), report, 'inline-flex');
     setVisible(valeSection.querySelector('button[onclick*="exportValeInventoryJSON"]'), report, 'inline-flex');
   }
@@ -482,14 +555,24 @@ function initFirebase() {
 // volvía a registrar: la sincronización en vivo quedaba muerta hasta cerrar sesión.
 // Aquí se vuelve a registrar en cuanto hay un usuario autenticado.
 let firebaseAuthHooked = false;
+let logoutInProgress = false;
 function hookFirebaseAuthReconnect() {
   if (firebaseAuthHooked) return;
   try {
     if (!firebase.auth) return;
     firebaseAuthHooked = true;
     firebase.auth(firebaseApp).onAuthStateChanged((user) => {
-      if (user && cloudRoomId && !firebaseListeningPath) {
-        firebaseConnectRoom().catch(() => {});
+      if (user) {
+        if (cloudRoomId && !firebaseListeningPath) {
+          firebaseConnectRoom().catch(() => {});
+        }
+        return;
+      }
+      // Firebase entrega null al terminar de restaurar una sesión inexistente,
+      // revocada o expirada. Si COMPRA-PRO aún conserva un usuario local,
+      // cerramos también la sesión visual para no dejar la aplicación abierta.
+      if (currentUser && !logoutInProgress) {
+        logout('La sesión de Firebase terminó. Inicia sesión nuevamente.');
       }
     });
   } catch (e) {
@@ -816,7 +899,7 @@ function initPeerNetwork() {
 }
 
 async function saveCloudRoom() {
-  if (!requirePermission('settings.manage')) return;
+  if (!requirePermission('settings.connection.edit')) return;
   const input = document.getElementById('cloud-room-input').value.trim();
   if (!input) {
     showToast('Ingrese una clave de sala', 'error');
@@ -1700,7 +1783,8 @@ async function attemptLoginMulti() {
       role,
       name: String(result.user.name || result.user.username || username),
       username: String(result.user.username || username),
-      permissions: Array.isArray(result.user.permissions) ? result.user.permissions : undefined
+      permissions: Array.isArray(result.user.permissions) ? expandPermissionAliases(result.user.permissions) : undefined,
+      permissionsConfigured: result.user.permissionsConfigured === true
     };
     normalizeUserPermissions(currentUser);
 
@@ -1747,9 +1831,35 @@ function applyUserRole() {
   showSection('dashboard');
 }
 
-function logout() {
-  sessionStorage.removeItem(STORAGE_PREFIX + 'session');
-  location.reload();
+async function logout(reason) {
+  if (logoutInProgress) return;
+  logoutInProgress = true;
+  try {
+    // Quita primero la sesión local para que la interfaz deje de considerar
+    // autenticado al usuario, incluso si Firebase tarda en responder.
+    sessionStorage.removeItem(STORAGE_PREFIX + 'session');
+    currentUser = null;
+    try { if (typeof window.compraProStopIdle === 'function') window.compraProStopIdle(); } catch (_) {}
+    try { if (firebaseRoomRef) firebaseRoomRef.off(); } catch (_) {}
+    firebaseRoomRef = null;
+    firebaseListeningPath = '';
+    firebaseConnectionIsUp = false;
+    try {
+      if (typeof firebase !== 'undefined' && firebase.auth && firebaseApp) {
+        const auth = firebase.auth(firebaseApp);
+        if (auth.currentUser) await auth.signOut();
+      }
+    } catch (e) {
+      console.warn('No se pudo cerrar Firebase Auth limpiamente:', e);
+    }
+    if (reason) {
+      try { showToast(reason, 'warning'); } catch (_) {}
+    }
+  } finally {
+    // Recargar al final garantiza que se muestre el formulario de acceso y
+    // evita dejar botones/pantallas de una sesión que ya terminó.
+    location.reload();
+  }
 }
 
 function renderUsersTable() {
@@ -1789,8 +1899,16 @@ function openUserModal(id = null) {
     const adminOption = roleSelect.querySelector('option[value="admin"]');
     if (adminOption) adminOption.disabled = !isMasterUser();
   }
-  renderPermissionEditor((u && Array.isArray(u.permissions) && u.permissions.length) ? u.permissions : defaultPermissionsForRole(u?.role || 'user'));
-  if (roleSelect) roleSelect.onchange = () => renderPermissionEditor(defaultPermissionsForRole(roleSelect.value));
+  // Compatibilidad: los administradores creados antes del control granular
+  // pueden tener permissions: []. Si nunca se configuraron explícitamente,
+  // mostrar todos los permisos disponibles (excepto system.reset).
+  const savedPermissions = u && Array.isArray(u.permissions) ? u.permissions : null;
+  const permissionsWereConfigured = !!(u && u.permissionsConfigured === true);
+  const legacyAdminWithoutPermissions = !!(u && u.role === 'admin' &&
+    !permissionsWereConfigured && (!savedPermissions || savedPermissions.length === 0));
+  renderPermissionEditor(legacyAdminWithoutPermissions || !savedPermissions
+    ? defaultPermissionsForRole(u?.role || 'user')
+    : savedPermissions);
   document.getElementById('modal-user-title').innerHTML = u ? '<i class="fas fa-user-edit" style="color:var(--primary); margin-right:8px;"></i>Editar Usuario' : '<i class="fas fa-user-plus" style="color:var(--primary); margin-right:8px;"></i>Nuevo Usuario';
   openModal('modal-user');
 }
@@ -1802,7 +1920,6 @@ async function saveUserData() {
   const username = document.getElementById('user-username').value.trim().toLowerCase();
   const pass = document.getElementById('user-password').value.trim();
   const role = document.getElementById('user-role').value;
-  if (role === 'master') { showToast('MASTER es una cuenta exclusiva provisionada desde el servidor; no puede asignarse desde este formulario.', 'error'); return; }
   if (role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede crear o asignar administradores.', 'error'); return; }
   const permissions = readPermissionEditor().filter(permission => permission !== 'system.reset');
 
@@ -1829,7 +1946,7 @@ async function saveUserData() {
 
   if (id) {
     const existingTarget = users.find(u => String(u.id) === String(id));
-    if (existingTarget?.role === 'master') { showToast('La cuenta MASTER está protegida y no se modifica desde este formulario.', 'error'); return; }
+    if (existingTarget?.role === 'master' && !isMasterUser()) { showToast('La cuenta MASTER está protegida.', 'error'); return; }
     if (existingTarget?.role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede modificar administradores.', 'error'); return; }
     const idx = users.findIndex(u => String(u.id) === String(id));
     if (idx >= 0) {
@@ -1840,6 +1957,7 @@ async function saveUserData() {
       }
       users[idx].role = role;
       users[idx].permissions = role === 'master' ? [] : permissions;
+      users[idx].permissionsConfigured = role !== 'master';
       users[idx].updatedAt = now;
       if (pass) users[idx].passHash = await hashSHA256(pass);
     }
@@ -1851,21 +1969,21 @@ async function saveUserData() {
       passHash: await hashSHA256(pass),
       role,
       permissions: role === 'master' ? [] : permissions,
+      permissionsConfigured: role !== 'master',
       active: true,
       updatedAt: now
     });
   }
 
-  if (currentUser && String(currentUser.id) === String(id)) {
-    currentUser.role = role;
-    currentUser.permissions = permissions;
-    sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
-    applyUserRole();
-  }
+  const editingCurrentUser = !!(currentUser && String(currentUser.id) === String(id));
+  // No se alteran los permisos de una sesión ya iniciada. El usuario deberá
+  // cerrar sesión y volver a entrar para recibir un token con los permisos nuevos.
   await broadcastFullSync();
   renderUsersTable();
   closeModal('modal-user');
-  showToast('Usuario guardado con contraseña cifrada');
+  showToast(editingCurrentUser
+    ? 'Usuario guardado. Cierra sesión y vuelve a entrar para aplicar los cambios.'
+    : 'Usuario guardado y sincronizado. El usuario deberá cerrar sesión y volver a entrar para aplicar sus permisos.');
 }
 
 async function toggleUserActive(id) {
@@ -2185,21 +2303,22 @@ async function exportVentasMaterialExcel() {
 function showSection(name) {
   const sectionPermission = {
     dashboard:'dashboard.view', inventario:'inventory.view', 'vale-inventario':'inventory.view',
-    'inv-fisico':'physical.manage', ventas:'purchases.create', 'vale-manual':'vouchers.manage',
+    'inv-fisico':'physical.view', ventas:'purchases.create', 'vale-manual':'vouchers.view',
     'historial-ventas':'purchases.view', 'ventas-material':'reports.export',
-    movimientos:'movements.view', kardex:'kardex.view', config:'settings.manage',
-    'stock-minimo':'inventory.view', ordenes:'purchases.create', entradas:'inventory.receive', seguridad:'users.manage'
+    movimientos:'movements.view', kardex:'kardex.view', config:'settings.view',
+    'stock-minimo':'inventory.view', ordenes:'purchases.create', seguridad:'users.manage'
   }[name];
   const sectionAlternatives = {
     inventario: ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
-    'vale-inventario': ['inventory.view','vouchers.manage'],
+    'vale-inventario': ['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete'],
     ventas: ['purchases.create','purchases.edit'],
-    'historial-ventas': ['purchases.view','purchases.edit','purchases.delete'],
+    'historial-ventas': ['purchases.view','purchases.edit','purchases.delete','vouchers.view','vouchers.edit','vouchers.delete'],
     ordenes: ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
-    entradas: ['inventory.receive','inventory.receipts.view'],
     movimientos: ['movements.view','movements.edit'],
     kardex: ['kardex.view','kardex.adjust'],
-    config: ['users.manage','settings.manage','backup.export','backup.restore']
+    config: ['users.manage','settings.view','settings.connection.edit','backup.view','backup.export','backup.restore','backup.delete'],
+    'inv-fisico': ['physical.view','physical.edit'],
+    'vale-manual': ['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete']
   };
   if (sectionAlternatives[name]) {
     if (!hasAnyPermission(sectionAlternatives[name])) {
@@ -2617,7 +2736,7 @@ function renderInvFisico() {
       <td><span class="clave-cell">${esc(p.clave)}</span></td>
       <td>${esc(p.descripcion)}</td>
       <td>${p.cantidad}</td>
-      <td><input type="number" value="${val}" oninput="ifCounts[${p.id}]=parseFloat(this.value)||0; renderInvFRow(${p.id},${p.cantidad},this)" style="width:80px; padding:5px; border:1px solid #ddd; border-radius:4px; text-align:center;"></td>
+      <td><input type="number" value="${val}" ${userHasPermission('physical.edit') ? '' : 'disabled'} oninput="ifCounts[${p.id}]=parseFloat(this.value)||0; renderInvFRow(${p.id},${p.cantidad},this)" style="width:80px; padding:5px; border:1px solid #ddd; border-radius:4px; text-align:center;"></td>
       <td id="if-diff-${p.id}" style="font-weight:700; color:${diff>0?'#059669':diff<0?'#ef4444':'#64748b'}">${val !== '' ? (diff > 0 ? '+'+diff : diff) : '—'}</td>
     </tr>`;
   }).join('');
@@ -2632,10 +2751,10 @@ function renderInvFRow(id, sys, el) {
   c.style.color = d > 0 ? '#059669' : d < 0 ? '#ef4444' : '#64748b'; 
 }
 
-function resetInvFisico() { if (!requirePermission('physical.manage')) return; ifCounts = {}; renderInvFisico(); }
+function resetInvFisico() { if (!requirePermission('physical.edit')) return; ifCounts = {}; renderInvFisico(); }
 
 function applyInvFisico() {
-  if (!requirePermission('physical.manage')) return;
+  if (!requirePermission('physical.edit')) return;
    
   if (confirm('¿Actualizar stock del sistema con el conteo fisico?')) { 
     const now = Date.now();
@@ -3504,6 +3623,8 @@ function renderHistorialVentas() {
     ...(Array.isArray(ventas) ? ventas.map(v => ({ ...v, _recordType: 'venta' })) : []),
     ...(Array.isArray(valesManuales) ? valesManuales.map(v => ({ ...v, _recordType: 'vale' })) : [])
   ].filter(v => {
+    if (v._recordType === 'venta' && !hasAnyPermission(['purchases.view','purchases.edit','purchases.delete'])) return false;
+    if (v._recordType === 'vale' && !hasAnyPermission(['vouchers.view','vouchers.edit','vouchers.delete'])) return false;
     // Filtro por tipo de registro seleccionado en el historial.
     if (sortMode === 'solo-venta' && v._recordType !== 'venta') return false;
     if (sortMode === 'solo-vale' && v._recordType !== 'vale') return false;
@@ -3539,9 +3660,9 @@ function renderHistorialVentas() {
       <div style="text-align:right">
         <div style="font-weight:800; color:#059669; margin-bottom:8px;">$${fmt(v.total)}</div>
         <div style="display:flex; gap:8px;">
-          <button type="button" class="btn btn-outline btn-sm historial-action" data-action="view" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-eye"></i> Ver</button>
-          <button type="button" class="btn btn-primary btn-sm admin-inline historial-action" data-permission="purchases.edit" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
-          <button type="button" class="btn btn-danger btn-sm admin-inline historial-action" data-permission="purchases.delete" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-outline btn-sm historial-action" data-permission="${isVale ? 'vouchers.view' : 'purchases.view'}" data-action="view" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-eye"></i> Ver</button>
+          <button type="button" class="btn btn-primary btn-sm admin-inline historial-action" data-permission="${isVale ? 'vouchers.edit' : 'purchases.edit'}" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
+          <button type="button" class="btn btn-danger btn-sm admin-inline historial-action" data-permission="${isVale ? 'vouchers.delete' : 'purchases.delete'}" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     </div>`;
@@ -3568,11 +3689,11 @@ function renderHistorialVentas() {
         if (type === 'vale') viewValeManual(id);
         else viewVenta(Number.isNaN(Number(id)) ? id : Number(id));
       } else if (action === 'edit') {
-        if (!requirePermission(type === 'vale' ? 'vouchers.manage' : 'purchases.edit')) return;
+        if (!requirePermission(type === 'vale' ? 'vouchers.edit' : 'purchases.edit')) return;
         if (type === 'vale') editValeManual(id);
         else editVenta(id);
       } else if (action === 'delete') {
-        if (!requirePermission(type === 'vale' ? 'vouchers.manage' : 'purchases.delete')) return;
+        if (!requirePermission(type === 'vale' ? 'vouchers.delete' : 'purchases.delete')) return;
         if (type === 'vale') deleteValeManual(id);
         else deleteVenta(id);
       }
@@ -4826,6 +4947,7 @@ function viewVenta(id) {
 }
 
 function viewValeManual(id) {
+  if (!requirePermission('vouchers.view')) return;
   const key = String(id);
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === key);
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
@@ -5085,8 +5207,9 @@ function handleValeItemTab(event, idx) {
 // =============================================================
 // INVENTARIO EXCLUSIVO PARA VALE MANUAL / DONACION
 // =============================================================
-function canManageValeInventory() {
-  return userHasPermission('vouchers.manage');
+function canManageValeInventory(action = 'edit') {
+  const key = action === 'create' ? 'vouchers.create' : action === 'delete' ? 'vouchers.delete' : 'vouchers.edit';
+  return userHasPermission(key);
 }
 
 let editingValeInventoryId = null;
@@ -5104,7 +5227,7 @@ function normalizeValeInventoryItem(raw = {}) {
 }
 
 function openValeInventoryMaterialForm(itemId = null) {
-  if (!canManageValeInventory()) {
+  if (!canManageValeInventory(itemId == null ? 'create' : 'edit')) {
     showToast('No tienes permiso para gestionar el Inventario Vale / Donación', 'error');
     return;
   }
@@ -5138,7 +5261,7 @@ function closeValeInventoryMaterialForm() {
 }
 
 async function saveValeInventoryMaterial() {
-  if (!canManageValeInventory()) { showToast('No tienes permiso para gestionar el Inventario Vale / Donación', 'error'); return; }
+  if (!canManageValeInventory(editingValeInventoryId == null ? 'create' : 'edit')) { showToast('No tienes permiso para gestionar el Inventario Vale / Donación', 'error'); return; }
   const existingItem = editingValeInventoryId == null ? null : valesInventario.find(x => String(x.id) === String(editingValeInventoryId));
   const item = normalizeValeInventoryItem({
     id: editingValeInventoryId ?? (Date.now() + Math.random()),
@@ -5182,9 +5305,9 @@ function renderValeInventario() {
     <td>$${fmt(i.precio)}</td><td>${Number(i.existencia)||0}</td>
     <td>
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
-        <button type="button" class="btn btn-entry btn-sm" data-permission="vouchers.manage" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
-        <button type="button" class="btn btn-outline btn-sm" data-permission="vouchers.manage" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
-        <button type="button" class="btn btn-danger btn-sm" data-permission="vouchers.manage" data-vale-delete-id="${esc(i.id)}"><i class="fas fa-trash"></i> Eliminar</button>
+        <button type="button" class="btn btn-entry btn-sm" data-permission="vouchers.edit" data-vale-entry-id="${esc(i.id)}" onclick="openValeInventoryEntryModal(${JSON.stringify(i.id)})"><i class="fas fa-arrow-down"></i> Dar entrada</button>
+        <button type="button" class="btn btn-outline btn-sm" data-permission="vouchers.edit" data-vale-manage-id="${esc(i.id)}" onclick="openValeInventoryMaterialForm(${JSON.stringify(i.id)})"><i class="fas fa-pen"></i> Modificar</button>
+        <button type="button" class="btn btn-danger btn-sm" data-permission="vouchers.delete" data-vale-delete-id="${esc(i.id)}"><i class="fas fa-trash"></i> Eliminar</button>
       </div>
     </td>
   </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; padding:28px; color:#94a3b8; font-weight:700;">No hay materiales en este inventario.</td></tr>';
@@ -5206,7 +5329,7 @@ document.addEventListener('click', function(e) {
 });
 
 function openValeInventoryEntryModal(id) {
-  if (!canManageValeInventory()) {
+  if (!canManageValeInventory('edit')) {
     showToast('No tienes permiso para registrar entradas de material', 'error');
     return;
   }
@@ -5238,7 +5361,7 @@ function updateValeInventoryEntryPreview() {
 }
 
 async function saveValeInventoryEntry() {
-  if (!canManageValeInventory()) {
+  if (!canManageValeInventory('edit')) {
     showToast('No tienes permiso para registrar entradas de material', 'error');
     return;
   }
@@ -5275,7 +5398,7 @@ async function saveValeInventoryEntry() {
 }
 
 async function deleteValeInventoryMaterial(id) {
-  if (!canManageValeInventory()) {
+  if (!canManageValeInventory('delete')) {
     showToast('No tienes permiso para eliminar materiales del Inventario Vale / Donación', 'error');
     return;
   }
@@ -5426,7 +5549,7 @@ function addValeInventoryItemToDraft(id) {
 }
 
 async function importValeInventoryExcel(input) {
-  if (!canManageValeInventory()) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
+  if (!canManageValeInventory('create')) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
   const file = input?.files?.[0];
   if (!file) return;
 
@@ -5573,7 +5696,7 @@ function exportValeInventoryJSON() {
 }
 
 function importValeInventoryJSON(input) {
-  if (!canManageValeInventory()) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
+  if (!canManageValeInventory('create')) { if (input) input.value = ''; showToast('No tienes permiso para importar este inventario', 'error'); return; }
   const file = input?.files?.[0];
   if (!file) return;
   const reader = new FileReader();
@@ -5684,7 +5807,7 @@ function removeValeManualItem(idx) {
 }
 
 function editValeManual(id) {
-  if (!requirePermission('vouchers.manage')) return;
+  if (!requirePermission('vouchers.edit')) return;
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === String(id));
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
   editingValeManualId = v.id;
@@ -5721,7 +5844,7 @@ function editValeManual(id) {
 }
 
 async function deleteValeManual(id) {
-  if (!requirePermission('vouchers.manage')) return;
+  if (!requirePermission('vouchers.delete')) return;
   const v = (Array.isArray(valesManuales) ? valesManuales : []).find(x => String(x.id) === String(id));
   if (!v) { showToast('Vale manual no encontrado', 'error'); return; }
   if (!confirm(`¿Eliminar el vale manual ${v.folio}?`)) return;
@@ -5882,6 +6005,8 @@ async function saveValeManual() {
 }
 
 async function _saveValeManualCore() {
+  const manualPermission = (editingValeManualId !== null && editingValeManualId !== undefined) ? 'vouchers.edit' : 'vouchers.create';
+  if (!requirePermission(manualPermission)) return;
   const trabajador = fixTextForExcel(document.getElementById('vale-trabajador')?.value || '').trim();
   const departamento = fixTextForExcel(document.getElementById('vale-departamento')?.value || '').trim();
   const cargo = fixTextForExcel(document.getElementById('vale-cargo')?.value || '').trim();
@@ -7022,7 +7147,21 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Actualiza permisos sugeridos al cambiar el nivel en el formulario.
 document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'permissions-select-all') {
+    document.querySelectorAll('#user-permissions input[name="user-permission"]:not(:disabled)').forEach(cb => { cb.checked = e.target.checked; });
+    updatePermissionGroupChecks();
+    return;
+  }
+  if (e.target && e.target.matches('#user-permissions [data-permission-group]')) {
+    const group = e.target.dataset.permissionGroup;
+    document.querySelectorAll(`#user-permissions [data-permission-group-wrap="${group}"] input[name="user-permission"]:not(:disabled)`).forEach(cb => { cb.checked = e.target.checked; });
+    updatePermissionGroupChecks();
+    return;
+  }
+  if (e.target && e.target.matches('#user-permissions input[name="user-permission"]')) { updatePermissionGroupChecks(); return; }
   if (e.target && e.target.id === 'user-role') {
+    // ADMIN se propone con todos los permisos, excepto system.reset.
+    // Después MASTER puede desmarcar individualmente los que no desea conceder.
     renderPermissionEditor(defaultPermissionsForRole(e.target.value));
   }
 });
