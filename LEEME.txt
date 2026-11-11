@@ -64,3 +64,31 @@ Pruebas ejecutadas en este paquete:
 - Verificacion de existencia de recursos locales referenciados por index.html.
 No se pudo ejecutar una prueba de extremo a extremo contra Firebase ni contra
 el servicio remoto de autenticacion desde este entorno.
+
+
+ACTUALIZACION 2026-11-10 - PERMISOS Y ENTRADAS POR REMISION
+===========================================================
+- Se agregaron permisos individuales para registrar entradas por remision y
+  consultar el historial de entradas.
+- El formulario de usuarios ahora selecciona automaticamente los permisos
+  predeterminados del rol elegido: ADMINISTRADOR recibe todos excepto borrar
+  todos los datos; USUARIO y USUARIO + FOLIO conservan sus permisos base.
+- MASTER no puede asignarse ni modificarse desde el formulario de usuarios.
+- Se agrego la seccion Entradas por remision, independiente de las ordenes de
+  compra. Permite capturar proveedor, RFC, remision, fecha, factura, almacen,
+  responsable, referencia, observaciones y multiples materiales.
+- El buscador de materiales contempla clave, descripcion, partida y contrato.
+- Al registrar, se incrementan existencias y se genera un movimiento ENTRADA
+  por material, con costo unitario para el Kardex de costo promedio.
+- Las entradas quedan guardadas en la ruta compartida compraPro/ext/<sala>/entradas
+  y en la copia local del navegador; se incluye exportacion a Excel.
+
+SEGURIDAD: LIMITACION QUE SIGUE PENDIENTE
+----------------------------------------
+Los permisos de esta version se validan en las funciones y pantallas del
+cliente. El servicio compra-pro-security.onrender.com no viene incluido en
+este ZIP. Las reglas database.rules.json siguen permitiendo lectura/escritura
+a cualquier usuario autenticado en las rutas indicadas. Por tanto, aun falta
+validar permisos y roles en el servidor y emitir claims verificables de Firebase
+para impedir operaciones directas fuera de la interfaz. No publicar reglas
+basadas en claims hasta que el servidor realmente emita esas claims.

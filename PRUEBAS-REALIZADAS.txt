@@ -1,28 +1,33 @@
-REPORTE DE VALIDACION - COMPRA RBAC
-Fecha: 2026-11-08
+REPORTE DE VALIDACION - COMPRA PRO
+Fecha: 2026-11-10
 
-RESULTADOS AUTOMATIZADOS
+VALIDACIONES AUTOMATIZADAS EJECUTADAS EN LOS ARCHIVOS DEL ZIP
 [OK] node --check js/app.js
 [OK] node --check js/modulos.js
 [OK] node --check js/pro-ui.js
 [OK] node --check js/capa-web.js
 [OK] index.html sin IDs duplicados
-[OK] Rutas locales de CSS, JS e imágenes existentes
-[OK] Selector de permisos individuales presente
-[OK] Soporte de rol MASTER y protección de operaciones críticas en cliente
-[OK] Control de acceso a secciones en cliente
+[OK] Referencias locales de CSS, JS e imágenes
+[OK] Sección Entradas por remisión creada en modulos.js
+[OK] Permisos inventory.receive e inventory.receipts.view declarados
+[OK] Acceso a la sección de entradas validado en showSection y navegación
+[OK] Registro de entrada llama addMov('ENTRADA') para cada material
+[OK] Guardado de entrada en compraPro/ext/<sala>/entradas
+[OK] Exportación Excel protegida con reports.export
+[OK] Versiones de JS y caché del Service Worker actualizadas
 
-PRUEBAS NO EJECUTADAS
-[NO EJECUTADA] Login real con cuentas MASTER/ADMIN/USUARIO: requiere el servicio remoto
-de autenticación y credenciales válidas.
-[NO EJECUTADA] Sincronización Firebase con reglas de claims: el backend de autenticación
-no está incluido en el ZIP.
-[NO EJECUTADA] Prueba navegador multi-PC/offline/impresión/Excel/cámara: requiere
-navegadores, dispositivos y servicios externos.
+PRUEBAS QUE REQUIEREN ENTORNO REAL Y NO SE DECLARAN COMO EJECUTADAS
+[NO EJECUTADA] Inicio de sesión con MASTER, ADMIN, MARIO y otros usuarios.
+[NO EJECUTADA] Pruebas de cada permiso contra todas las operaciones del navegador.
+[NO EJECUTADA] Escritura/lectura Firebase con las credenciales reales y dos equipos.
+[NO EJECUTADA] Verificación física de existencias, Kardex y costo promedio en una sala real.
+[NO EJECUTADA] Exportación Excel en navegador real.
 
-ADVERTENCIA DE SEGURIDAD
-El control de permisos del navegador no sustituye autorización en el servidor.
-database.rules.json continúa usando auth != null. Antes de producción se debe modificar
-el servicio compra-pro-security.onrender.com para provisionar MASTER, validar roles y
-permisos en servidor y emitir claims de Firebase; después deben endurecerse las reglas
-de Realtime Database. Ver LEEME.txt.
+LIMITACION DE SEGURIDAD
+El ZIP no contiene el backend compra-pro-security.onrender.com. Las reglas
+database.rules.json continúan autorizando lectura/escritura por auth != null.
+La interfaz ahora valida permisos para las funciones añadidas y refuerza los
+controles del formulario, pero no puede impedir por sí sola llamadas directas
+a Firebase. Para seguridad completa faltan validaciones en el backend y claims
+verificables en Firebase. No se afirma que los permisos estén protegidos en
+servidor ni que se haya probado una sesión remota.

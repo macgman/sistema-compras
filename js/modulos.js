@@ -8,7 +8,7 @@ var hasPerm=function(k){try{return typeof window.userHasPermission==='function'&
 var isAdmin=function(){return hasPerm('users.manage')};
 var money=function(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})};
 /* ---------- Almacén compartido en Firebase (compraPro/ext/<sala>/...) con copia local ---------- */
-var ext={stockMin:{},prov:{},oc:{},cfg:{}},on=false,NAMES=['stockMin','prov','oc','cfg'];
+var ext={stockMin:{},prov:{},oc:{},cfg:{},entradas:{}},on=false,NAMES=['stockMin','prov','oc','cfg','entradas'];
 function room(){try{return String(getFirebaseRoomPath()).split('/').pop()}catch(e){return''}}
 function lk(n){return 'wr-ext-'+room()+'-'+n}
 function load(){NAMES.forEach(function(n){try{ext[n]=JSON.parse(localStorage.getItem(lk(n))||'{}')||{}}catch(e){}})}
@@ -25,13 +25,14 @@ function mkNav(){var nav=$('#sidebar nav');if(!nav||$('#nav-stock-minimo'))retur
   var h='<div class="nav-group">Gestión</div>'+
    '<a onclick="showSection(\'stock-minimo\')" id="nav-stock-minimo"><i class="fas fa-bell"></i><span>Stock mínimo</span></a>'+
    '<a onclick="showSection(\'ordenes\')" id="nav-ordenes"><i class="fas fa-file-invoice"></i><span>Órdenes de compra</span></a>'+
+   '<a onclick="showSection(\'entradas\')" id="nav-entradas" data-permission="inventory.receive"><i class="fas fa-dolly"></i><span>Entradas por remisión</span></a>'+
    '<a onclick="showSection(\'seguridad\')" id="nav-seguridad" data-permission="users.manage"><i class="fas fa-shield-halved"></i><span>Seguridad</span></a>';
   nav.insertAdjacentHTML('beforeend',h)}
-var TITLES={'stock-minimo':'Stock mínimo','ordenes':'Órdenes de compra','seguridad':'Seguridad'};
+var TITLES={'stock-minimo':'Stock mínimo','ordenes':'Órdenes de compra','entradas':'Entradas por remisión','seguridad':'Seguridad'};
 var origShow=window.showSection;
 window.showSection=function(n){var r=origShow.apply(this,arguments);if(TITLES[n]){var t=$('#page-title');if(t)t.textContent=TITLES[n].toUpperCase();render(n)}return r};
-function refresh(){['stock-minimo','ordenes','seguridad'].forEach(function(n){var s=$('#section-'+n);if(s&&s.style.display==='block'&&!(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)))render(n)});if(typeof window.wrBell==='function')window.wrBell()}
-function render(n){if(n==='stock-minimo')rStock();else if(n==='ordenes')rOrd();else if(n==='seguridad')rSec()}
+function refresh(){['stock-minimo','ordenes','entradas','seguridad'].forEach(function(n){var s=$('#section-'+n);if(s&&s.style.display==='block'&&!(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)))render(n)});if(typeof window.wrBell==='function')window.wrBell()}
+function render(n){if(n==='stock-minimo')rStock();else if(n==='ordenes')rOrd();else if(n==='entradas')rEntradas();else if(n==='seguridad')rSec()}
 function card(t,s){return '<div class="net-box" style="margin-bottom:14px"><div class="net-box-title">'+t+'</div>'+(s?'<div class="net-box-sub">'+s+'</div>':'')+'</div>'}
 /* ---------- 2) STOCK MÍNIMO + ALERTAS ---------- */
 window.wrMin=function(p){var v=ext.stockMin[p.id!=null?p.id:p.clave];return v!=null&&v!==''?Number(v):5};
@@ -232,6 +233,117 @@ function editOC(o0,dup){var nuevo=!o0||dup;if(nuevo&&!hasPerm('purchases.create'
   draw()}
 /* ---------- 1) SEGURIDAD: auditoría, contraseña propia y restablecimiento ---------- */
 var DEF={admin:'240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',operador:'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446'};
+
+/* ---------- ENTRADAS DIRECTAS POR REMISIÓN (sin orden de compra) ---------- */
+var entDraft=[],entSearch='',entFilter='';
+function rEntradas(){
+  var s=$('#section-entradas');if(!s)return;
+  if(!hasPerm('inventory.receive')&&!hasPerm('inventory.receipts.view')){s.innerHTML=card('Acceso restringido','No tienes permiso para consultar entradas.');return}
+  var canNew=hasPerm('inventory.receive'),canView=hasPerm('inventory.receipts.view')||canNew;
+  var records=Object.keys(ext.entradas||{}).map(function(k){return ext.entradas[k]}).filter(Boolean).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''))||Number(b.createdAt||0)-Number(a.createdAt||0)});
+  s.innerHTML=card('<i class="fas fa-dolly" style="color:#059669"></i> Entradas de materiales por remisión',
+    'Registra materiales recibidos directamente del proveedor, aunque no exista una orden de compra. Cada partida actualiza existencias y genera su movimiento de ENTRADA en el Kardex con costo promedio.')+
+   '<div class="toolbar" style="gap:8px;flex-wrap:wrap"><div style="flex:1"></div>'+
+   (canNew?'<button class="btn btn-primary" id="ent-new"><i class="fas fa-plus"></i> Nueva entrada</button>':'')+
+   (canView&&hasPerm('reports.export')?'<button class="btn btn-outline" id="ent-xls"><i class="fas fa-file-excel"></i> Excel</button>':'')+'</div>'+
+   '<div class="toolbar" style="gap:8px;flex-wrap:wrap"><div class="search-box" style="flex:2;min-width:220px"><i class="fas fa-search"></i><input id="ent-q" placeholder="Buscar folio, remisión, proveedor, clave, descripción o partida..." value="'+E(entFilter)+'"></div></div>'+
+   '<div class="table-wrap"><table><thead><tr><th>Entrada</th><th>Fecha</th><th>Proveedor</th><th>Remisión</th><th>Materiales</th><th>Unidades</th><th>Total</th><th>Recibió</th><th></th></tr></thead><tbody id="ent-body"></tbody></table></div>';
+  var draw=function(){
+    var q=entFilter.toLowerCase();
+    var rows=records.filter(function(r){var all=[r.folio,r.fecha,r.proveedor,r.remision,r.recibio,(r.items||[]).map(function(i){return [i.clave,i.descripcion,i.partida].join(' ')}).join(' ')].join(' ').toLowerCase();return !q||all.indexOf(q)>-1});
+    $('#ent-body').innerHTML=rows.map(function(r){var qty=(r.items||[]).reduce(function(a,i){return a+(Number(i.cantidad)||0)},0),total=(r.items||[]).reduce(function(a,i){return a+(Number(i.cantidad)||0)*(Number(i.costo)||0)},0);
+      return '<tr><td><b>'+E(r.folio)+'</b></td><td>'+E(r.fecha)+'</td><td>'+E(r.proveedor)+'</td><td>'+E(r.remision)+'</td><td>'+((r.items||[]).length)+'</td><td>'+qty+'</td><td>'+money(total)+'</td><td>'+E(r.recibio)+'</td><td><button class="btn btn-outline btn-sm" data-ent-view="'+E(r.id)+'"><i class="fas fa-eye"></i></button></td></tr>'}).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">No hay entradas que coincidan</td></tr>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ent-view]'),function(b){b.onclick=function(){viewEntrada(ext.entradas[this.dataset.entView])}});
+  };
+  $('#ent-q').oninput=function(){entFilter=this.value;draw()};
+  if($('#ent-new'))$('#ent-new').onclick=function(){openEntrada()};
+  if($('#ent-xls'))$('#ent-xls').onclick=exportEntradas;
+  draw();
+}
+function openEntrada(){
+  if(!hasPerm('inventory.receive')){T('No tienes permiso para registrar entradas de materiales','error');return}
+  var P=typeof products!=='undefined'?products:[];
+  entDraft=[];entSearch='';
+  var provOpts=Object.keys(ext.prov||{}).map(function(k){return '<option>'+E(ext.prov[k].nombre)+'</option>'}).join('');
+  var m=mo('Nueva entrada por remisión',
+   '<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">'+
+   F('Proveedor / razón social','<input id="en-prov" list="en-prov-list" maxlength="160" placeholder="Nombre del proveedor"><datalist id="en-prov-list">'+provOpts+'</datalist>')+
+   F('RFC del proveedor','<input id="en-rfc" maxlength="20" placeholder="RFC">')+
+   F('No. de remisión','<input id="en-rem" maxlength="80" required placeholder="Folio de remisión">')+
+   F('Fecha de remisión','<input type="date" id="en-fecha" value="'+today()+'">')+
+   F('Factura (opcional)','<input id="en-factura" maxlength="80" placeholder="No. de factura">')+
+   F('Almacén / ubicación','<input id="en-almacen" maxlength="100" value="Almacén general">')+
+   F('Recibió','<input id="en-recibio" maxlength="100" value="'+E(who())+'">')+
+   F('Referencia / orden relacionada (opcional)','<input id="en-ref" maxlength="100" placeholder="Sin orden de compra">')+
+   '</div><div class="net-box" style="margin:12px 0"><b>Agregar materiales</b><div class="net-box-sub">Busca por clave, descripción, partida, contrato o unidad. Selecciona un material del catálogo y agrega la cantidad y costo unitario recibido.</div>'+
+   '<div class="form-grid" style="grid-template-columns:minmax(220px,2fr) minmax(90px,1fr) minmax(110px,1fr) auto;align-items:end">'+
+   F('Buscar material','<input id="en-search" list="en-products" placeholder="Clave, descripción, partida..."><datalist id="en-products">'+P.map(function(p,i){return '<option value="'+E([p.clave,p.descripcion,p.partida,p.contrato].filter(Boolean).join(' — '))+'" data-index="'+i+'"></option>'}).join('')+'</datalist>')+
+   F('Cantidad','<input type="number" id="en-qty" min="0.001" step="0.001" value="1">')+
+   F('Costo unitario','<input type="number" id="en-cost" min="0" step="0.01" value="0">')+
+   '<button class="btn btn-outline" id="en-add" type="button"><i class="fas fa-plus"></i> Agregar</button></div>'+
+   '<div class="table-wrap"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Partida</th><th>Unidad</th><th>Cantidad</th><th>Costo unit.</th><th>Importe</th><th></th></tr></thead><tbody id="en-items"></tbody></table></div>'+
+   '<div style="text-align:right;font-weight:800;padding:10px" id="en-total">Total: $0.00</div></div>'+
+   F('Observaciones','<textarea id="en-notas" rows="2" maxlength="1000" placeholder="Estado del material, faltantes, daños, etc."></textarea>')+
+   '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-outline" id="en-cancel">Cancelar</button><button class="btn btn-primary" id="en-save"><i class="fas fa-save"></i> Registrar entrada</button></div>',980);
+  function chosenProduct(){
+    var val=$('#en-search').value.trim(),opts=Array.prototype.slice.call($('#en-products').options);
+    var op=opts.find(function(o){return o.value===val});
+    if(op){var ix=opts.indexOf(op);return P[ix]}
+    var q=val.toLowerCase();
+    return P.find(function(p){return [p.clave,p.descripcion,p.partida,p.contrato].some(function(v){return String(v||'').toLowerCase()===q})});
+  }
+  function drawItems(){
+    $('#en-items').innerHTML=entDraft.map(function(x,i){return '<tr><td>'+E(x.clave)+'</td><td>'+E(x.descripcion)+'</td><td>'+E(x.partida)+'</td><td>'+E(x.unidad)+'</td><td><input class="en-edit" data-i="'+i+'" data-f="cantidad" type="number" min="0.001" step="0.001" value="'+x.cantidad+'" style="width:85px"></td><td><input class="en-edit" data-i="'+i+'" data-f="costo" type="number" min="0" step="0.01" value="'+x.costo+'" style="width:95px"></td><td>'+money(x.cantidad*x.costo)+'</td><td><button class="btn btn-danger btn-sm en-del" data-i="'+i+'"><i class="fas fa-trash"></i></button></td></tr>'}).join('')||'<tr><td colspan="8" style="text-align:center;padding:16px">Agrega al menos un material</td></tr>';
+    $('#en-total').textContent='Total: '+money(entDraft.reduce(function(a,x){return a+x.cantidad*x.costo},0));
+    Array.prototype.forEach.call(m.querySelectorAll('.en-edit'),function(i){i.onchange=function(){var n=Number(this.value);if(!Number.isFinite(n)||(this.dataset.f==='cantidad'?n<=0:n<0)){T('Cantidad o costo no válido','error');return}entDraft[+this.dataset.i][this.dataset.f]=n;drawItems()}});
+    Array.prototype.forEach.call(m.querySelectorAll('.en-del'),function(b){b.onclick=function(){entDraft.splice(+this.dataset.i,1);drawItems()}});
+  }
+  $('#en-add').onclick=function(){
+    var p=chosenProduct(),q=Number($('#en-qty').value),c=Number($('#en-cost').value);
+    if(!p){T('Selecciona un material válido del catálogo','error');return}
+    if(!Number.isFinite(q)||q<=0||!Number.isFinite(c)||c<0){T('Captura cantidad y costo válidos','error');return}
+    var id=String(p.id!=null?p.id:p.clave),existing=entDraft.find(function(x){return x.pid===id});
+    if(existing){existing.cantidad+=q;existing.costo=c}else entDraft.push({pid:id,clave:String(p.clave||''),descripcion:String(p.descripcion||''),partida:String(p.partida||''),contrato:String(p.contrato||''),unidad:String(p.unidad||''),cantidad:q,costo:c});
+    $('#en-search').value='';$('#en-qty').value='1';drawItems();
+  };
+  $('#en-cancel').onclick=function(){m.classList.remove('open')};
+  $('#en-save').onclick=function(){
+    if(!hasPerm('inventory.receive')){T('No tienes permiso para registrar entradas','error');return}
+    var proveedor=$('#en-prov').value.trim(),remision=$('#en-rem').value.trim(),fecha=$('#en-fecha').value;
+    if(!proveedor||!remision||!fecha||!$('#en-recibio').value.trim()){T('Completa proveedor, remisión, fecha y responsable de recepción','error');return}
+    if(!entDraft.length){T('Agrega al menos un material','error');return}
+    var valid=[];
+    for(var i=0;i<entDraft.length;i++){var x=entDraft[i],p=P.find(function(v){return String(v.id!=null?v.id:v.clave)===x.pid});if(!p){T('El material '+x.clave+' ya no existe en el catálogo','error');return}if(!(Number(x.cantidad)>0)||!(Number(x.costo)>=0)){T('Hay cantidades o costos inválidos','error');return}valid.push([p,x])}
+    var id=uid(),folio='ENT-'+today().replace(/-/g,'')+'-'+id.slice(-5),now=Date.now();
+    var record={id:id,folio:folio,proveedor:proveedor,rfc:$('#en-rfc').value.trim(),remision:remision,fecha:fecha,factura:$('#en-factura').value.trim(),almacen:$('#en-almacen').value.trim(),recibio:$('#en-recibio').value.trim(),referencia:$('#en-ref').value.trim(),notas:$('#en-notas').value.trim(),items:entDraft.map(function(x){return Object.assign({},x)}),createdAt:now,createdBy:who(),status:'REGISTRADA'};
+    try{
+      valid.forEach(function(pair){var p=pair[0],x=pair[1],before=Number(p.cantidad)||0;p.cantidad=before+Number(x.cantidad);p.precio=Number(x.costo);p.factura=record.factura||record.remision;p.fecha_entrada=fecha;p.updatedAt=now;
+        addMov('ENTRADA',p.id,x.cantidad,'Entrada por remisión '+remision+' · '+proveedor,folio,'',{fecha_factura:fecha,unitCost:Number(x.costo),partida:x.partida,clave:x.clave,desc:x.descripcion,kardexSource:'ENTRADA_REMISION'});
+      });
+      put('entradas',id,record);
+      broadcastFullSync();
+      ['renderInventario','renderDashboard','renderMovimientos','renderKardex'].forEach(function(f){try{if(typeof window[f]==='function')window[f]()}catch(e){}});
+      m.classList.remove('open');T('Entrada registrada; existencias y Kardex actualizados');
+      rEntradas();
+    }catch(err){console.error(err);T('No se pudo completar la entrada: '+err.message,'error')}
+  };
+  drawItems();
+}
+function viewEntrada(r){
+  if(!r)return;
+  if(!hasPerm('inventory.receipts.view')&&!hasPerm('inventory.receive')){T('No tienes permiso para consultar entradas','error');return}
+  var rows=(r.items||[]).map(function(x){return '<tr><td>'+E(x.clave)+'</td><td>'+E(x.descripcion)+'</td><td>'+E(x.partida)+'</td><td>'+E(x.unidad)+'</td><td>'+x.cantidad+'</td><td>'+money(x.costo)+'</td><td>'+money(x.cantidad*x.costo)+'</td></tr>'}).join('');
+  mo('Detalle '+E(r.folio),card('Datos de recepción','Proveedor: <b>'+E(r.proveedor)+'</b> · RFC: '+E(r.rfc)+' · Remisión: <b>'+E(r.remision)+'</b> · Fecha: '+E(r.fecha)+' · Factura: '+E(r.factura)+' · Almacén: '+E(r.almacen)+' · Recibió: '+E(r.recibio)+' · Referencia: '+E(r.referencia))+
+  '<div class="table-wrap"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Partida</th><th>Unidad</th><th>Cantidad</th><th>Costo</th><th>Importe</th></tr></thead><tbody>'+rows+'</tbody></table></div><p>Observaciones: '+E(r.notas)+'</p>',900);
+}
+function exportEntradas(){
+  if(!hasPerm('reports.export')){T('No tienes permiso para exportar reportes','error');return}
+  if(typeof ExcelJS==='undefined'){T('El módulo de Excel aún no carga; reintenta','error');return}
+  var wb=new ExcelJS.Workbook(),ws=wb.addWorksheet('Entradas por remisión');
+  ws.columns=[['Entrada',22],['Fecha',13],['Proveedor',30],['RFC',18],['Remisión',20],['Factura',20],['Almacén',20],['Clave',16],['Descripción',38],['Partida',16],['Unidad',12],['Cantidad',12],['Costo unitario',16],['Importe',16],['Recibió',22],['Observaciones',32]].map(function(c){return{header:c[0],width:c[1]}});
+  Object.keys(ext.entradas||{}).forEach(function(k){var r=ext.entradas[k];(r.items||[]).forEach(function(x){ws.addRow([r.folio,r.fecha,r.proveedor,r.rfc,r.remision,r.factura,r.almacen,x.clave,x.descripcion,x.partida,x.unidad,x.cantidad,x.costo,x.cantidad*x.costo,r.recibio,r.notas])})});
+  ws.getRow(1).font={bold:true};wb.xlsx.writeBuffer().then(function(b){dl(new Blob([b],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'entradas-remision-'+today()+'.xlsx');T('Excel de entradas generado')});
+}
 function defaultUsers(){return(typeof users!=='undefined'?users:[]).filter(function(u){return u.active!==false&&Object.keys(DEF).some(function(k){return u.passHash===DEF[k]})})}
 function strength(p){var s=0;if(p.length>=8)s++;if(p.length>=12)s++;if(/[a-z]/.test(p)&&/[A-Z]/.test(p))s++;if(/\d/.test(p))s++;if(/[^A-Za-z0-9]/.test(p))s++;return s}
 function pwModal(forced){var m=mo(forced?'Debes cambiar tu contraseña':'Cambiar mi contraseña','<p style="font-size:.85rem;margin-bottom:10px">'+(forced?'Tu cuenta usa una contraseña por defecto conocida públicamente. Elige una nueva ahora.':'Usa al menos 8 caracteres combinando letras y números.')+'</p><div class="form-grid" style="grid-template-columns:1fr"><div class="form-group"><label>Contraseña actual</label><input type="password" id="pw-a"></div><div class="form-group"><label>Nueva contraseña</label><input type="password" id="pw-n"><div id="pw-bar" style="height:6px;border-radius:9px;background:#e5e7eb;margin-top:6px"><i style="display:block;height:100%;width:0;border-radius:9px"></i></div></div><div class="form-group"><label>Repetir nueva contraseña</label><input type="password" id="pw-r"></div></div><div style="text-align:right;margin-top:12px"><button class="btn btn-primary" id="pw-s">Cambiar contraseña</button></div>');
@@ -271,7 +383,7 @@ function auAct(){var a=this.getAttribute('data-au');
   else if(a==='fb')window.open('https://console.firebase.google.com/project/compra-pro-888c9/database/compra-pro-888c9-default-rtdb/rules','_blank','noopener');
   else if(a==='pw'){var t=$('#section-seguridad table');if(t)t.scrollIntoView({behavior:'smooth',block:'center'})}}
 /* ---------- Arranque ---------- */
-function init(){mkNav();mkSection('stock-minimo','');mkSection('ordenes','');mkSection('seguridad','')}
+function init(){mkNav();mkSection('stock-minimo','');mkSection('ordenes','');mkSection('entradas','');mkSection('seguridad','')}
 init();load();
 var oRole=window.applyUserRole;window.applyUserRole=function(){var r=oRole.apply(this,arguments);load();listen();
   setTimeout(function(){if(hasPerm('users.manage')&&defaultUsers().some(function(u){return String(u.id)===String(currentUser.id)||u.username===currentUser.username}))pwModal(true)},1500);return r};

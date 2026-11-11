@@ -224,6 +224,8 @@ const COMPRA_PERMISSIONS = [
   ['inventory.edit','Modificar materiales'],
   ['inventory.delete','Eliminar materiales'],
   ['inventory.import','Carga masiva / importar'],
+  ['inventory.receive','Registrar entradas por remisión'],
+  ['inventory.receipts.view','Consultar historial de entradas'],
   ['physical.manage','Inventario físico'],
   ['purchases.create','Registrar compras'],
   ['purchases.view','Consultar historial de compras'],
@@ -270,7 +272,7 @@ function requirePermission(permission, message = 'No tienes permiso para realiza
 }
 function normalizeUserPermissions(user) {
   if (!user || user.role === 'master') return user;
-  if (!Array.isArray(user.permissions)) user.permissions = defaultPermissionsForRole(user.role);
+  if (!Array.isArray(user.permissions) || (user.role === 'admin' && user.permissions.length === 0)) user.permissions = defaultPermissionsForRole(user.role);
   user.permissions = [...new Set(user.permissions.filter(p => COMPRA_PERMISSIONS.some(x => x[0] === p)))];
   return user;
 }
@@ -308,6 +310,7 @@ function applyGranularPermissions() {
     const navAccess = {
       'nav-config': ['users.manage','settings.manage','backup.export','backup.restore'],
       'nav-ordenes': ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
+      'nav-entradas': ['inventory.receive','inventory.receipts.view'],
       'nav-seguridad': ['users.manage'],
       'nav-vale-inventario': ['inventory.view','vouchers.manage'],
       'nav-inventario': ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
@@ -1786,7 +1789,8 @@ function openUserModal(id = null) {
     const adminOption = roleSelect.querySelector('option[value="admin"]');
     if (adminOption) adminOption.disabled = !isMasterUser();
   }
-  renderPermissionEditor(u?.permissions || defaultPermissionsForRole(u?.role || 'user'));
+  renderPermissionEditor((u && Array.isArray(u.permissions) && u.permissions.length) ? u.permissions : defaultPermissionsForRole(u?.role || 'user'));
+  if (roleSelect) roleSelect.onchange = () => renderPermissionEditor(defaultPermissionsForRole(roleSelect.value));
   document.getElementById('modal-user-title').innerHTML = u ? '<i class="fas fa-user-edit" style="color:var(--primary); margin-right:8px;"></i>Editar Usuario' : '<i class="fas fa-user-plus" style="color:var(--primary); margin-right:8px;"></i>Nuevo Usuario';
   openModal('modal-user');
 }
@@ -1798,6 +1802,7 @@ async function saveUserData() {
   const username = document.getElementById('user-username').value.trim().toLowerCase();
   const pass = document.getElementById('user-password').value.trim();
   const role = document.getElementById('user-role').value;
+  if (role === 'master') { showToast('MASTER es una cuenta exclusiva provisionada desde el servidor; no puede asignarse desde este formulario.', 'error'); return; }
   if (role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede crear o asignar administradores.', 'error'); return; }
   const permissions = readPermissionEditor().filter(permission => permission !== 'system.reset');
 
@@ -1824,7 +1829,7 @@ async function saveUserData() {
 
   if (id) {
     const existingTarget = users.find(u => String(u.id) === String(id));
-    if (existingTarget?.role === 'master' && !isMasterUser()) { showToast('La cuenta MASTER está protegida.', 'error'); return; }
+    if (existingTarget?.role === 'master') { showToast('La cuenta MASTER está protegida y no se modifica desde este formulario.', 'error'); return; }
     if (existingTarget?.role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede modificar administradores.', 'error'); return; }
     const idx = users.findIndex(u => String(u.id) === String(id));
     if (idx >= 0) {
@@ -2183,7 +2188,7 @@ function showSection(name) {
     'inv-fisico':'physical.manage', ventas:'purchases.create', 'vale-manual':'vouchers.manage',
     'historial-ventas':'purchases.view', 'ventas-material':'reports.export',
     movimientos:'movements.view', kardex:'kardex.view', config:'settings.manage',
-    'stock-minimo':'inventory.view', ordenes:'purchases.create', seguridad:'users.manage'
+    'stock-minimo':'inventory.view', ordenes:'purchases.create', entradas:'inventory.receive', seguridad:'users.manage'
   }[name];
   const sectionAlternatives = {
     inventario: ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
@@ -2191,6 +2196,7 @@ function showSection(name) {
     ventas: ['purchases.create','purchases.edit'],
     'historial-ventas': ['purchases.view','purchases.edit','purchases.delete'],
     ordenes: ['purchases.view','purchases.create','purchases.edit','purchases.delete'],
+    entradas: ['inventory.receive','inventory.receipts.view'],
     movimientos: ['movements.view','movements.edit'],
     kardex: ['kardex.view','kardex.adjust'],
     config: ['users.manage','settings.manage','backup.export','backup.restore']
