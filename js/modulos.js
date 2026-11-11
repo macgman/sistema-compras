@@ -238,8 +238,8 @@ var DEF={admin:'240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
 var entDraft=[],entSearch='',entFilter='';
 function rEntradas(){
   var s=$('#section-entradas');if(!s)return;
-  if(!hasPerm('inventory.receive')&&!hasPerm('inventory.receipts.view')){s.innerHTML=card('Acceso restringido','No tienes permiso para consultar entradas.');return}
-  var canNew=hasPerm('inventory.receive'),canView=hasPerm('inventory.receipts.view')||canNew;
+  if(!hasPerm('inventory.receive')&&!hasPerm('inventory.receipts.view')&&!hasPerm('inventory.receipts.edit')&&!hasPerm('inventory.receipts.delete')){s.innerHTML=card('Acceso restringido','No tienes permiso para consultar entradas.');return}
+  var canNew=hasPerm('inventory.receive'),canView=hasPerm('inventory.receipts.view')||hasPerm('inventory.receipts.edit')||hasPerm('inventory.receipts.delete')||canNew;
   var records=Object.keys(ext.entradas||{}).map(function(k){return ext.entradas[k]}).filter(Boolean).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''))||Number(b.createdAt||0)-Number(a.createdAt||0)});
   s.innerHTML=card('<i class="fas fa-dolly" style="color:#059669"></i> Entradas de materiales por remisión',
     'Registra materiales recibidos directamente del proveedor, aunque no exista una orden de compra. Cada partida actualiza existencias y genera su movimiento de ENTRADA en el Kardex con costo promedio.')+
@@ -252,8 +252,10 @@ function rEntradas(){
     var q=entFilter.toLowerCase();
     var rows=records.filter(function(r){var all=[r.folio,r.fecha,r.proveedor,r.remision,r.recibio,(r.items||[]).map(function(i){return [i.clave,i.descripcion,i.partida].join(' ')}).join(' ')].join(' ').toLowerCase();return !q||all.indexOf(q)>-1});
     $('#ent-body').innerHTML=rows.map(function(r){var qty=(r.items||[]).reduce(function(a,i){return a+(Number(i.cantidad)||0)},0),total=(r.items||[]).reduce(function(a,i){return a+(Number(i.cantidad)||0)*(Number(i.costo)||0)},0);
-      return '<tr><td><b>'+E(r.folio)+'</b></td><td>'+E(r.fecha)+'</td><td>'+E(r.proveedor)+'</td><td>'+E(r.remision)+'</td><td>'+((r.items||[]).length)+'</td><td>'+qty+'</td><td>'+money(total)+'</td><td>'+E(r.recibio)+'</td><td><button class="btn btn-outline btn-sm" data-ent-view="'+E(r.id)+'"><i class="fas fa-eye"></i></button></td></tr>'}).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">No hay entradas que coincidan</td></tr>';
+      return '<tr style="'+(r.status==='CANCELADA'?'opacity:.55;text-decoration:line-through':'')+'"><td><b>'+E(r.folio)+'</b>'+(r.status==='CANCELADA'?' <small>(CANCELADA)</small>':'')+'</td><td>'+E(r.fecha)+'</td><td>'+E(r.proveedor)+'</td><td>'+E(r.remision)+'</td><td>'+((r.items||[]).length)+'</td><td>'+qty+'</td><td>'+money(total)+'</td><td>'+E(r.recibio)+'</td><td><button class="btn btn-outline btn-sm" data-ent-view="'+E(r.id)+'" title="Ver detalle"><i class="fas fa-eye"></i></button>'+(r.status!=='CANCELADA'&&hasPerm('inventory.receipts.edit')?' <button class="btn btn-outline btn-sm" data-ent-edit="'+E(r.id)+'" title="Modificar"><i class="fas fa-pen"></i></button>':'')+(r.status!=='CANCELADA'&&hasPerm('inventory.receipts.delete')?' <button class="btn btn-danger btn-sm" data-ent-del="'+E(r.id)+'" title="Cancelar entrada"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'}).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">No hay entradas que coincidan</td></tr>';
     Array.prototype.forEach.call(document.querySelectorAll('[data-ent-view]'),function(b){b.onclick=function(){viewEntrada(ext.entradas[this.dataset.entView])}});
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ent-edit]'),function(b){b.onclick=function(){editEntrada(ext.entradas[this.dataset.entEdit])}});
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ent-del]'),function(b){b.onclick=function(){cancelEntrada(ext.entradas[this.dataset.entDel])}});
   };
   $('#ent-q').oninput=function(){entFilter=this.value;draw()};
   if($('#ent-new'))$('#ent-new').onclick=function(){openEntrada()};
@@ -329,9 +331,49 @@ function openEntrada(){
   };
   drawItems();
 }
+/* ---------- Edición y cancelación auditada de entradas por remisión ---------- */
+function editEntrada(r){
+  if(!hasPerm('inventory.receipts.edit')){T('No tienes permiso para modificar entradas por remisión','error');return}
+  if(!r||r.status==='CANCELADA'){T('Esta entrada ya está cancelada','error');return}
+  var m=mo('Modificar entrada '+E(r.folio),
+    '<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">'+
+    F('Proveedor','<input id="ee-prov" maxlength="160" value="'+E(r.proveedor)+'">')+
+    F('RFC','<input id="ee-rfc" maxlength="20" value="'+E(r.rfc)+'">')+
+    F('No. de remisión','<input id="ee-rem" maxlength="80" value="'+E(r.remision)+'">')+
+    F('Fecha','<input type="date" id="ee-fecha" value="'+E(r.fecha)+'">')+
+    F('Factura','<input id="ee-factura" maxlength="80" value="'+E(r.factura)+'">')+
+    F('Almacén','<input id="ee-almacen" maxlength="100" value="'+E(r.almacen)+'">')+
+    F('Recibió','<input id="ee-recibio" maxlength="100" value="'+E(r.recibio)+'">')+
+    F('Referencia','<input id="ee-ref" maxlength="100" value="'+E(r.referencia)+'">')+'</div>'+
+    '<p class="net-box-sub">Puedes corregir cantidad y costo por material. Los cambios de existencias se registran como movimientos de ajuste vinculados al folio original; no se borran movimientos del Kardex.</p>'+
+    '<div class="table-wrap"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Partida</th><th>Unidad</th><th>Cantidad</th><th>Costo unit.</th></tr></thead><tbody>'+r.items.map(function(x,i){return '<tr><td>'+E(x.clave)+'</td><td>'+E(x.descripcion)+'</td><td>'+E(x.partida)+'</td><td>'+E(x.unidad)+'</td><td><input type="number" min="0.001" step="0.001" data-ee-q="'+i+'" value="'+Number(x.cantidad)+'" style="width:90px"></td><td><input type="number" min="0" step="0.01" data-ee-c="'+i+'" value="'+Number(x.costo)+'" style="width:100px"></td></tr>'}).join('')+'</tbody></table></div>'+
+    F('Observaciones','<textarea id="ee-notas" rows="2" maxlength="1000">'+E(r.notas)+'</textarea>')+
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-outline" id="ee-cancel">Cerrar</button><button class="btn btn-primary" id="ee-save">Guardar cambios</button></div>',980);
+  $('#ee-cancel').onclick=function(){m.classList.remove('open')};
+  $('#ee-save').onclick=async function(){
+    if(!hasPerm('inventory.receipts.edit')){T('Permiso insuficiente','error');return}
+    var next=(r.items||[]).map(function(x,i){return Object.assign({},x,{cantidad:Number(m.querySelector('[data-ee-q="'+i+'"]').value),costo:Number(m.querySelector('[data-ee-c="'+i+'"]').value)})});
+    if(next.some(function(x){return !Number.isFinite(x.cantidad)||x.cantidad<0||!Number.isFinite(x.costo)||x.costo<0})){T('Revisa cantidades y costos: deben ser válidos','error');return}
+    var changes=[];
+    try{
+    next.forEach(function(x){var p=(typeof products!=='undefined'?products:[]).find(function(z){return String(z.id!=null?z.id:z.clave)===String(x.pid)});if(!p)throw new Error('No se encontró el material '+x.clave);var old=(r.items||[]).find(function(y){return String(y.pid)===String(x.pid)});var delta=x.cantidad-(old?Number(old.cantidad)||0:0);if(delta<0&&(Number(p.cantidad)||0)<Math.abs(delta))throw new Error('Stock insuficiente para reducir '+x.clave);changes.push({p:p,x:x,delta:delta})});
+      changes.forEach(function(c){if(!c.delta)return;var before=Number(c.p.cantidad)||0;c.p.cantidad=before+c.delta;c.p.updatedAt=Date.now();if(c.delta>0)addMov('ENTRADA',c.p.id,c.delta,'Corrección de entrada por remisión '+r.remision,r.folio,'',{stockBefore:before,unitCost:c.x.costo,fecha_factura:r.fecha,partida:c.x.partida,clave:c.x.clave,desc:c.x.descripcion,kardexSource:'CORRECCION_REMISION'});else addMov('SALIDA',c.p.id,Math.abs(c.delta),'Corrección de entrada por remisión '+r.remision,r.folio,'',{stockBefore:before,fecha_factura:r.fecha,partida:c.x.partida,clave:c.x.clave,desc:c.x.descripcion,kardexSource:'CORRECCION_REMISION'});c.p.precio=c.x.costo});
+      r.history=Array.isArray(r.history)?r.history:[];r.history.push({at:Date.now(),by:who(),action:'MODIFICACION',before:{proveedor:r.proveedor,remision:r.remision,fecha:r.fecha,items:JSON.parse(JSON.stringify(r.items||[]))}});r.proveedor=$('#ee-prov').value.trim();r.rfc=$('#ee-rfc').value.trim();r.remision=$('#ee-rem').value.trim();r.fecha=$('#ee-fecha').value;r.factura=$('#ee-factura').value.trim();r.almacen=$('#ee-almacen').value.trim();r.recibio=$('#ee-recibio').value.trim();r.referencia=$('#ee-ref').value.trim();r.notas=$('#ee-notas').value.trim();r.items=next.filter(function(x){return Number(x.cantidad)>0});r.updatedAt=Date.now();r.updatedBy=who();r.status='MODIFICADA';
+      put('entradas',r.id,r);await broadcastFullSync();['renderInventario','renderDashboard','renderMovimientos','renderKardex'].forEach(function(f){try{if(typeof window[f]==='function')window[f]()}catch(e){}});m.classList.remove('open');T('Entrada modificada; ajustes registrados en Kardex');rEntradas();
+    }catch(err){console.error(err);T(err.message||'No se pudo modificar la entrada','error')}
+  };
+}
+function cancelEntrada(r){
+  if(!hasPerm('inventory.receipts.delete')){T('No tienes permiso para cancelar entradas por remisión','error');return}
+  if(!r||r.status==='CANCELADA')return;
+  if(!confirm('¿Cancelar '+r.folio+'? Se descontarán del inventario las cantidades de esta remisión mediante movimientos de salida. La operación quedará auditada en el Kardex.'))return;
+  var pairs=[];
+  for(var i=0;i<(r.items||[]).length;i++){var x=r.items[i],p=(typeof products!=='undefined'?products:[]).find(function(z){return String(z.id!=null?z.id:z.clave)===String(x.pid)});if(!p){T('No se encontró el material '+x.clave+'; no se canceló nada','error');return}if((Number(p.cantidad)||0)<Number(x.cantidad)){T('Stock insuficiente de '+x.clave+'. No se puede cancelar sin dejar inventario negativo.','error');return}pairs.push({p:p,x:x})}
+  try{pairs.forEach(function(c){var before=Number(c.p.cantidad)||0;c.p.cantidad=before-Number(c.x.cantidad);c.p.updatedAt=Date.now();addMov('SALIDA',c.p.id,c.x.cantidad,'Cancelación de entrada por remisión '+r.remision,r.folio,'',{stockBefore:before,fecha_factura:r.fecha,partida:c.x.partida,clave:c.x.clave,desc:c.x.descripcion,kardexSource:'CANCELACION_REMISION'})});r.history=Array.isArray(r.history)?r.history:[];r.history.push({at:Date.now(),by:who(),action:'CANCELACION',beforeStatus:r.status});r.status='CANCELADA';r.cancelledAt=Date.now();r.cancelledBy=who();put('entradas',r.id,r);broadcastFullSync().then(function(){['renderInventario','renderDashboard','renderMovimientos','renderKardex'].forEach(function(f){try{if(typeof window[f]==='function')window[f]()}catch(e){}});T('Entrada cancelada y existencias actualizadas');rEntradas()})}catch(err){console.error(err);T('No se pudo cancelar: '+err.message,'error')}
+}
 function viewEntrada(r){
   if(!r)return;
-  if(!hasPerm('inventory.receipts.view')&&!hasPerm('inventory.receive')){T('No tienes permiso para consultar entradas','error');return}
+  if(!hasPerm('inventory.receipts.view')&&!hasPerm('inventory.receive')&&!hasPerm('inventory.receipts.edit')&&!hasPerm('inventory.receipts.delete')){T('No tienes permiso para consultar entradas','error');return}
   var rows=(r.items||[]).map(function(x){return '<tr><td>'+E(x.clave)+'</td><td>'+E(x.descripcion)+'</td><td>'+E(x.partida)+'</td><td>'+E(x.unidad)+'</td><td>'+x.cantidad+'</td><td>'+money(x.costo)+'</td><td>'+money(x.cantidad*x.costo)+'</td></tr>'}).join('');
   mo('Detalle '+E(r.folio),card('Datos de recepción','Proveedor: <b>'+E(r.proveedor)+'</b> · RFC: '+E(r.rfc)+' · Remisión: <b>'+E(r.remision)+'</b> · Fecha: '+E(r.fecha)+' · Factura: '+E(r.factura)+' · Almacén: '+E(r.almacen)+' · Recibió: '+E(r.recibio)+' · Referencia: '+E(r.referencia))+
   '<div class="table-wrap"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Partida</th><th>Unidad</th><th>Cantidad</th><th>Costo</th><th>Importe</th></tr></thead><tbody>'+rows+'</tbody></table></div><p>Observaciones: '+E(r.notas)+'</p>',900);
@@ -340,8 +382,8 @@ function exportEntradas(){
   if(!hasPerm('reports.export')){T('No tienes permiso para exportar reportes','error');return}
   if(typeof ExcelJS==='undefined'){T('El módulo de Excel aún no carga; reintenta','error');return}
   var wb=new ExcelJS.Workbook(),ws=wb.addWorksheet('Entradas por remisión');
-  ws.columns=[['Entrada',22],['Fecha',13],['Proveedor',30],['RFC',18],['Remisión',20],['Factura',20],['Almacén',20],['Clave',16],['Descripción',38],['Partida',16],['Unidad',12],['Cantidad',12],['Costo unitario',16],['Importe',16],['Recibió',22],['Observaciones',32]].map(function(c){return{header:c[0],width:c[1]}});
-  Object.keys(ext.entradas||{}).forEach(function(k){var r=ext.entradas[k];(r.items||[]).forEach(function(x){ws.addRow([r.folio,r.fecha,r.proveedor,r.rfc,r.remision,r.factura,r.almacen,x.clave,x.descripcion,x.partida,x.unidad,x.cantidad,x.costo,x.cantidad*x.costo,r.recibio,r.notas])})});
+  ws.columns=[['Entrada',22],['Fecha',13],['Proveedor',30],['RFC',18],['Remisión',20],['Factura',20],['Almacén',20],['Clave',16],['Descripción',38],['Partida',16],['Unidad',12],['Cantidad',12],['Costo unitario',16],['Importe',16],['Recibió',22],['Observaciones',32],['Estado',14]].map(function(c){return{header:c[0],width:c[1]}});
+  Object.keys(ext.entradas||{}).forEach(function(k){var r=ext.entradas[k];(r.items||[]).forEach(function(x){ws.addRow([r.folio,r.fecha,r.proveedor,r.rfc,r.remision,r.factura,r.almacen,x.clave,x.descripcion,x.partida,x.unidad,x.cantidad,x.costo,x.cantidad*x.costo,r.recibio,r.notas,r.status||'REGISTRADA'])})});
   ws.getRow(1).font={bold:true};wb.xlsx.writeBuffer().then(function(b){dl(new Blob([b],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'entradas-remision-'+today()+'.xlsx');T('Excel de entradas generado')});
 }
 function defaultUsers(){return(typeof users!=='undefined'?users:[]).filter(function(u){return u.active!==false&&Object.keys(DEF).some(function(k){return u.passHash===DEF[k]})})}

@@ -224,7 +224,7 @@ const COMPRA_PERMISSION_GROUPS = [
     ['dashboard.view','Dashboard']
   ]],
   ['Inventario', [
-    ['inventory.view','Consultar inventario'], ['inventory.create','Agregar materiales'],
+    ['inventory.view','Consultar inventario'], ['inventory.receive','Registrar entrada por remisión'], ['inventory.receipts.view','Consultar entradas por remisión'], ['inventory.receipts.edit','Modificar entradas por remisión'], ['inventory.receipts.delete','Cancelar / eliminar entradas por remisión'], ['inventory.create','Agregar materiales'],
     ['inventory.edit','Modificar materiales'], ['inventory.delete','Eliminar materiales'],
     ['inventory.import','Carga masiva / importar']
   ]],
@@ -361,7 +361,8 @@ function applyGranularPermissions() {
       'nav-ventas': ['purchases.create','purchases.edit'],
       'nav-historial-ventas': ['purchases.view','purchases.edit','purchases.delete','vouchers.view','vouchers.edit','vouchers.delete'],
       'nav-movimientos': ['movements.view','movements.edit'],
-      'nav-kardex': ['kardex.view','kardex.adjust']
+      'nav-kardex': ['kardex.view','kardex.adjust'],
+      'nav-entradas': ['inventory.receive','inventory.receipts.view','inventory.receipts.edit','inventory.receipts.delete']
     }[el.id];
     setVisible(el, navAccess ? hasAnyPermission(navAccess) : (el.dataset.permission === 'inventory.edit-or-delete' ? hasAnyPermission(['inventory.edit','inventory.delete']) : userHasPermission(el.dataset.permission)));
   });
@@ -393,7 +394,8 @@ function applyGranularPermissions() {
   setVisible(document.getElementById('nav-ordenes'),
     hasAnyPermission(['purchases.view','purchases.create','purchases.edit','purchases.delete']));
   setVisible(document.getElementById('nav-stock-minimo'), userHasPermission('inventory.view'));
-  setVisible(document.getElementById('nav-dashboard'), userHasPermission('dashboard.view'));
+  // El Dashboard es de consulta general para cualquier rol autenticado.
+  setVisible(document.getElementById('nav-dashboard'), !!currentUser);
   setVisible(document.getElementById('vale-mode-tab'), hasAnyPermission(['vouchers.create','vouchers.edit']));
   setVisible(document.getElementById('nav-inv-fisico'), hasAnyPermission(['physical.view','physical.edit']));
   setVisible(document.getElementById('nav-vale-inventario'), hasAnyPermission(['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete']));
@@ -2306,7 +2308,7 @@ function showSection(name) {
     'inv-fisico':'physical.view', ventas:'purchases.create', 'vale-manual':'vouchers.view',
     'historial-ventas':'purchases.view', 'ventas-material':'reports.export',
     movimientos:'movements.view', kardex:'kardex.view', config:'settings.view',
-    'stock-minimo':'inventory.view', ordenes:'purchases.create', seguridad:'users.manage'
+    'stock-minimo':'inventory.view', ordenes:'purchases.create', seguridad:'users.manage', entradas:'inventory.receive'
   }[name];
   const sectionAlternatives = {
     inventario: ['inventory.view','inventory.create','inventory.edit','inventory.delete','inventory.import'],
@@ -2318,13 +2320,14 @@ function showSection(name) {
     kardex: ['kardex.view','kardex.adjust'],
     config: ['users.manage','settings.view','settings.connection.edit','backup.view','backup.export','backup.restore','backup.delete'],
     'inv-fisico': ['physical.view','physical.edit'],
+    entradas: ['inventory.receive','inventory.receipts.view','inventory.receipts.edit','inventory.receipts.delete'],
     'vale-manual': ['vouchers.view','vouchers.create','vouchers.edit','vouchers.delete']
   };
   if (sectionAlternatives[name]) {
     if (!hasAnyPermission(sectionAlternatives[name])) {
       showToast('No tienes permiso para acceder a esta sección.', 'error'); return;
     }
-  } else if (sectionPermission && !userHasPermission(sectionPermission)) {
+  } else if (name !== 'dashboard' && sectionPermission && !userHasPermission(sectionPermission)) {
     showToast('No tienes permiso para acceder a esta sección.', 'error'); return;
   }
 

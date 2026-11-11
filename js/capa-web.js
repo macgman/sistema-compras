@@ -91,28 +91,32 @@ document.addEventListener('keydown',function(e){
   else if(e.key==='Enter'&&l[sel]){e.preventDefault();var f=l[sel].f;closePal();f()}});
 $('#wr-pal').addEventListener('mousedown',function(e){if(e.target===this)closePal()});
 $('#wr-pal-in').addEventListener('input',function(){sel=0;draw()});
-/* ---- Gráficas del Dashboard (solo lectura de ventas y products) ---- */
-function ym(f){f=String(f||'');var m=f.match(/^(\d{4})-(\d{2})/);if(m)return m[1]+'-'+m[2];
-  m=f.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);return m?m[3]+'-'+('0'+m[2]).slice(-2):null}
+/* ---- Dashboard con filtros por día, mes e histórico ---- */
+function ym(f){f=String(f||'');var m=f.match(/^(\d{4})-(\d{2})/);if(m)return m[1]+'-'+m[2];m=f.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);return m?m[3]+'-'+('0'+m[2]).slice(-2):null}
+function dateKey(f){f=String(f||'');if(/^\d{4}-\d{2}-\d{2}/.test(f))return f.slice(0,10);var m=f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);return m?m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2):''}
 function money(n){return '$'+(typeof fmt==='function'?fmt(n):Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2}))}
-function charts(){var host=$('#stats-grid');if(!host)return;var c=$('#wr-charts');
-  if(!c){c=document.createElement('div');c.id='wr-charts';host.parentNode.insertBefore(c,host.nextSibling)}
-  var V=typeof ventas!=='undefined'?ventas:[],P=typeof products!=='undefined'?products:[],M=typeof movimientos!=='undefined'?movimientos:[];
+var dashMode='month',dashDay=new Date().toISOString().slice(0,10),dashMonth=new Date().toISOString().slice(0,7);
+function dashFilter(list){return list.filter(function(v){var d=dateKey(v.fecha||v.fecha_factura||v.createdAt&&new Date(v.createdAt).toISOString());return dashMode==='all'||(dashMode==='day'?d===dashDay:ym(d)===dashMonth)})}
+function setDashMode(mode){dashMode=mode;charts()}
+function charts(){var host=$('#stats-grid');if(!host)return;var c=$('#wr-charts');if(!c){c=document.createElement('div');c.id='wr-charts';host.parentNode.insertBefore(c,host.nextSibling)}
+  var V=typeof ventas!=='undefined'?ventas:[],P=typeof products!=='undefined'?products:[],M=typeof movimientos!=='undefined'?movimientos:[],F=dashFilter(V),FM=dashFilter(M);
   var mes=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'],now=new Date(),keys=[],tot={};
   for(var k=5;k>=0;k--){var d=new Date(now.getFullYear(),now.getMonth()-k,1),key=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);keys.push(key);tot[key]=0}
-  var hoy=0,td=now.toISOString().slice(0,10),cnt=0;
-  V.forEach(function(v){var key=ym(v.fecha);if(key in tot)tot[key]+=Number(v.total)||0;if(key===keys[5])cnt++;if(String(v.fecha).slice(0,10)===td)hoy++});
+  V.forEach(function(v){var key=ym(v.fecha);if(key in tot)tot[key]+=Number(v.total)||0});
+  var hoy=F.length, cnt=F.length, total=F.reduce(function(a,v){return a+(Number(v.total)||0)},0);
   var max=Math.max.apply(null,keys.map(function(k){return tot[k]}))||1,any=keys.some(function(k){return tot[k]>0});
-  var bars=any?'<div class="wr-bars">'+keys.map(function(k){return '<div title="'+money(tot[k])+'"><i style="height:'+Math.round(tot[k]/max*100)+'%"></i>'+mes[+k.slice(5)-1]+'</div>'}).join('')+'</div>':'<div class="wr-empty">Aún no hay compras en los últimos 6 meses</div>';
+  var bars=any?'<div class="wr-bars">'+keys.map(function(k){return '<div title="'+money(tot[k])+'"><i style="height:'+Math.round(tot[k]/max*100)+'%"></i>'+mes[+k.slice(5)-1]+'</div>'}).join('')+'</div>':'<div class="wr-empty">Sin compras en los últimos 6 meses para el filtro seleccionado</div>';
   var cr=0,me=0,al=0;P.forEach(function(p){var q=Number(p.cantidad)||0;q<=5?cr++:q<=20?me++:al++});var n=P.length||1;
   function row(l,v,col){return '<div class="row"><span style="width:110px">'+l+'</span><div class="bar"><i style="width:'+Math.round(v/n*100)+'%;background:'+col+'"></i></div><b>'+v+'</b></div>'}
-  var cur=tot[keys[5]],prev=tot[keys[4]],df=prev?Math.round((cur-prev)/prev*100):null;
-  var kp='<div class="wr-kpis"><div><small>Compras este mes</small><b>'+money(cur)+'</b><em class="'+(df!==null&&df<0?'down':'up')+'">'+(df===null?'sin mes anterior':(df<0?'▼ ':'▲ ')+Math.abs(df)+'% vs mes anterior')+'</em></div><div><small>Compras hoy</small><b>'+hoy+'</b><em>registros</em></div><div><small>Promedio por compra</small><b>'+money(cnt?cur/cnt:0)+'</b><em>este mes</em></div></div>';
-  var ag={};V.forEach(function(v){(v.items||[]).forEach(function(i){var d=String(i.descripcion||i.clave||'');ag[d]=(ag[d]||0)+(Number(i.cantidad)||0)})});
+  var ag={};F.forEach(function(v){(v.items||[]).forEach(function(i){var d=String(i.descripcion||i.clave||'');ag[d]=(ag[d]||0)+(Number(i.cantidad)||0)})});
   var top=Object.keys(ag).map(function(d){return[d,ag[d]]}).sort(function(a,b){return b[1]-a[1]}).slice(0,5),tm=top.length?top[0][1]:1;
-  var tp=top.length?top.map(function(t){return '<div class="row"><span style="flex:0 0 46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc2(t[0])+'">'+esc2(t[0])+'</span><div class="bar"><i style="width:'+Math.round(t[1]/tm*100)+'%;background:#059669"></i></div><b>'+t[1]+'</b></div>'}).join(''):'<div class="wr-empty">Sin compras registradas</div>';
-  var ac=M.slice(0,6).map(function(x){var en=/ENTRADA/i.test(x.type);return '<div class="r"><span class="t" style="background:'+(en?'#059669':'#ef4444')+'">'+esc2(x.type||'')+'</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc2(x.desc||'')+'</span><b>'+(Number(x.qty)||0)+'</b><small style="color:var(--text-light)">'+esc2(x.user||'')+'</small></div>'}).join('')||'<div class="wr-empty">Sin movimientos recientes</div>';
-  c.innerHTML='<div class="card" style="grid-column:1/-1"><h4>Resumen del mes</h4>'+kp+'</div><div class="card"><h4>Compras por mes (últimos 6)</h4>'+bars+'</div><div class="card wr-dist"><h4>Estado del inventario</h4>'+(P.length?row('Crítico (≤5)',cr,'#ef4444')+row('Medio (6–20)',me,'#f59e0b')+row('Suficiente (>20)',al,'#10b981'):'<div class="wr-empty">Sin materiales registrados</div>')+'</div><div class="card wr-dist"><h4>Top 5 materiales más comprados</h4>'+tp+'</div><div class="card wr-act"><h4>Actividad reciente</h4>'+ac+'</div>'}
+  var tp=top.length?top.map(function(t){return '<div class="row"><span style="flex:0 0 46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc2(t[0])+'">'+esc2(t[0])+'</span><div class="bar"><i style="width:'+Math.round(t[1]/tm*100)+'%;background:#059669"></i></div><b>'+t[1]+'</b></div>'}).join(''):'<div class="wr-empty">Sin compras en el periodo</div>';
+  var ac=FM.slice().sort(function(a,b){return Number(b.createdAt||0)-Number(a.createdAt||0)}).slice(0,6).map(function(x){var en=/ENTRADA/i.test(x.type);return '<div class="r"><span class="t" style="background:'+(en?'#059669':'#ef4444')+'">'+esc2(x.type||'')+'</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc2(x.desc||'')+'</span><b>'+(Number(x.qty)||0)+'</b><small style="color:var(--text-light)">'+esc2(x.user||'')+'</small></div>'}).join('')||'<div class="wr-empty">Sin movimientos en el periodo</div>';
+  var label=dashMode==='day'?'Día: '+dashDay:dashMode==='month'?'Mes: '+dashMonth:'Todo el historial';
+  c.innerHTML='<div class="card" style="grid-column:1/-1"><div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap"><h4 style="margin:0">Dashboard · '+label+'</h4><div class="toolbar" style="margin:0;gap:6px"><button class="btn '+(dashMode==='day'?'btn-primary':'btn-outline')+'" type="button" onclick="window.setDashMode(\'day\')">Hoy</button><input aria-label="Seleccionar día" type="date" id="dash-day" value="'+dashDay+'" style="max-width:150px"><button class="btn '+(dashMode==='month'?'btn-primary':'btn-outline')+'" type="button" onclick="window.setDashMode(\'month\')">Este mes</button><input aria-label="Seleccionar mes" type="month" id="dash-month" value="'+dashMonth+'" style="max-width:150px"><button class="btn '+(dashMode==='all'?'btn-primary':'btn-outline')+'" type="button" onclick="window.setDashMode(\'all\')">Histórico</button><button class="btn btn-outline" type="button" onclick="window.setDashMode(\''+dashMode+'\')" title="Actualizar"><i class="fas fa-sync-alt"></i></button></div></div><div class="wr-kpis"><div><small>Compras en el periodo</small><b>'+money(total)+'</b><em>'+F.length+' registros</em></div><div><small>Materiales en catálogo</small><b>'+P.length+'</b><em>existencias actuales</em></div><div><small>Promedio por compra</small><b>'+money(cnt?total/cnt:0)+'</b><em>periodo seleccionado</em></div></div></div><div class="card"><h4>Compras por mes (últimos 6)</h4>'+bars+'</div><div class="card wr-dist"><h4>Estado del inventario</h4>'+(P.length?row('Crítico (≤5)',cr,'#ef4444')+row('Medio (6–20)',me,'#f59e0b')+row('Suficiente (>20)',al,'#10b981'):'<div class="wr-empty">Sin materiales registrados</div>')+'</div><div class="card wr-dist"><h4>Top 5 materiales más comprados</h4>'+tp+'</div><div class="card wr-act"><h4>Actividad reciente</h4>'+ac+'</div>';
+  var di=$('#dash-day'),mi=$('#dash-month');if(di)di.onchange=function(){dashDay=this.value||dashDay;dashMode='day';charts()};if(mi)mi.onchange=function(){dashMonth=this.value||dashMonth;dashMode='month';charts()};
+}
+window.setDashMode=setDashMode;
 var origDash=window.renderDashboard;
 if(origDash)window.renderDashboard=function(){var r=origDash.apply(this,arguments);try{charts();bell(false)}catch(e){}return r};
 /* ---- Conexión, splash y PWA ---- */
