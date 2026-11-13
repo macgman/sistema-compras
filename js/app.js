@@ -1500,7 +1500,7 @@ function setupLoginHandlers() {
 async function init() {
   await openDatabase();
 
-  // COMPRA 3.0.10 inicia con catálogo limpio. Este reinicio se ejecuta
+  // COMPRA 3.0.6 inicia con catálogo limpio. Este reinicio se ejecuta
   // una sola vez en la base local de cada navegador para eliminar materiales
   // heredados de versiones anteriores. Después de importar un .json, los
   // materiales sí se conservan normalmente entre recargas.
@@ -2481,16 +2481,27 @@ function productMatchesSearch(p, rawQuery) {
   return words.every(word => haystack.includes(word));
 }
 
-// Coincidencia EXACTA por número de partida (40 no coincide con 140 ni con 240 ML).
-// Acepta varias partidas separadas por coma, espacio o punto y coma. "040" = "40".
+// Búsqueda por partida. Acepta varias separadas por coma, espacio o punto y coma.
+//  - Solo números (ej. 40): coincidencia EXACTA con la partida o con alguno de sus bloques
+//    numéricos ("40" encuentra "40" y "1C-40", pero no "140" ni "240 ML"; "040" = "40").
+//  - Con letras (ej. 1C, 1C-10, 9a12): coincide si la partida CONTIENE el texto, sin importar
+//    guiones, espacios ni mayúsculas ("1c" encuentra "1C-10" y "1C-09"; "1c10" = "1C-10").
 function productMatchesPartida(p, rawPartida) {
   const tokens = String(rawPartida || '').split(/[,;\s]+/).map(normalizeSearchText).filter(Boolean);
   if (!tokens.length) return true;
   const value = normalizeSearchText(p.partida);
   if (!value) return false;
+  const compact = v => v.replace(/[^a-z0-9]/g, '');
   const asNum = v => (/^\d+$/.test(v) ? String(parseInt(v, 10)) : v);
   const vNum = asNum(value);
-  return tokens.some(t => t === value || asNum(t) === vNum);
+  const vCompact = compact(value);
+  const blocks = value.split(/[^a-z0-9]+/).filter(Boolean).map(asNum);
+  return tokens.some(t => {
+    if (t === value || asNum(t) === vNum) return true;
+    if (/^\d+$/.test(t)) return blocks.includes(asNum(t));
+    const tc = compact(t);
+    return !!tc && vCompact.includes(tc);
+  });
 }
 
 function getInventarioFiltradoOrdenado() {
@@ -4710,7 +4721,7 @@ function buildF361LegacyExcel(v) {
   <h2>COMPRA Pro</h2>
   <h3>Mario Alberto Chable García</h3>
   <p>Lic. en Informática · Desarrollador de software</p>
-  <span class="dev-version">VERSIÓN 3.0.10 · 2026</span>
+  <span class="dev-version">VERSIÓN 3.0.7 · 2026</span>
   <div class="dev-feature-grid">
     <span>📦 Inventario</span>
     <span>🧾 Compras</span>
