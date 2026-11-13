@@ -12,7 +12,7 @@
   var main=document.getElementById('main');
   if(main && !document.getElementById('app-footer')){
     var f=document.createElement('footer'); f.id='app-footer'; f.className='app-footer no-print';
-    f.innerHTML='<span><b>COMPRA</b> · Gestión de inventario y compras</span><span class="app-footer-ver"><i class="fas fa-shield-halved"></i> Versión 3.0.7</span><span>© 2026 Mario Alberto Chable García · Lic. en Informática</span>';
+    f.innerHTML='<span><b>COMPRA</b> · Gestión de inventario y compras</span><span class="app-footer-ver"><i class="fas fa-shield-halved"></i> Versión 3.0.10</span><span>© 2026 Mario Alberto Chable García · Lic. en Informática</span>';
     main.appendChild(f);
   }
 })();
