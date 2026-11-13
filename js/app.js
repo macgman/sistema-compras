@@ -4721,7 +4721,7 @@ function buildF361LegacyExcel(v) {
   <h2>COMPRA Pro</h2>
   <h3>Mario Alberto Chable García</h3>
   <p>Lic. en Informática · Desarrollador de software</p>
-  <span class="dev-version">VERSIÓN 3.0.7 · 2026</span>
+  <span class="dev-version">VERSIÓN 3.0.10 · 2026</span>
   <div class="dev-feature-grid">
     <span>📦 Inventario</span>
     <span>🧾 Compras</span>
