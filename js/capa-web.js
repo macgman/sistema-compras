@@ -215,5 +215,5 @@ var tb=document.createElement('button');tb.id='wr-top';tb.className='no-print';t
 window.addEventListener('scroll',function(){tb.style.display=window.scrollY>400?'block':'none'},{passive:true});
 applyPrefs();window.wrApplyPrefs=applyPrefs;
 buildTools();
-if('serviceWorker' in navigator&&/^https?:/.test(location.protocol))navigator.serviceWorker.register('sw.js').then(function(r){r.addEventListener('updatefound',function(){var w=r.installing;w&&w.addEventListener('statechange',function(){if(w.state==='installed'&&navigator.serviceWorker.controller)toast('Hay una nueva versión disponible: recarga con Ctrl+F5')})})}).catch(function(){});
+if('serviceWorker' in navigator&&/^https?:/.test(location.protocol))navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(function(r){try{r.update()}catch(e){}r.addEventListener('updatefound',function(){var w=r.installing;w&&w.addEventListener('statechange',function(){if(w.state==='installed'&&navigator.serviceWorker.controller)toast('Hay una nueva versión disponible: recarga con Ctrl+F5')})})}).catch(function(){});
 })();

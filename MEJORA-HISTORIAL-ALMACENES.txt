@@ -1,0 +1,49 @@
+MEJORA: VISIBILIDAD DE FOLIOS UTILIZADOS POR EL OTRO ALMACEN
+============================================================
+
+Qué cambia
+----------
+El Historial de ventas muestra, además de las compras y vales propios, una
+ficha informativa por cada folio que haya sido consumido en el otro almacén.
+La ficha indica el folio, el almacén que lo utilizó, la fecha, el tipo de
+operación y el usuario que lo registró.
+
+Estas fichas son referencias de solo lectura. No duplican la compra, no
+muestran importes como si fueran compras locales y no modifican inventarios.
+
+Sincronización
+--------------
+Los usos nuevos se guardan en:
+  compraPro/shared/<sala>/folio/used/<folio>
+
+El historial por usuario continúa en:
+  compraPro/shared/<sala>/folio/usage/<usuario>
+
+La ruta /used se encuentra debajo del nodo /folio, por lo que hereda los
+permisos de lectura y escritura de /folio en database.rules.fase2-por-almacen.json.
+No requiere crear una regla adicional si ya está publicada la regla fase 2
+que permite a los usuarios autenticados de ambos almacenes acceder a /folio.
+
+Compatibilidad con registros anteriores
+---------------------------------------
+Al iniciar sesión, la aplicación toma los últimos 20 usos guardados por cada
+usuario en /usage/recent y los indexa en /used. Así se recuperan referencias
+históricas que ya existan en ese historial por usuario. Los registros más
+antiguos que nunca se guardaron en /usage no se pueden reconstruir desde este
+índice sin consultar respaldos o los datos históricos de cada almacén.
+
+Archivos principales
+-------------------
+  js/almacenes.js : índice compartido /used, lectura y backfill de historial.
+  js/app.js       : fichas informativas dentro de Historial de ventas.
+  index.html      : nueva versión de recursos para invalidar caché.
+  sw.js           : versión nueva de caché del Service Worker.
+
+
+CORRECCIÓN POSTERIOR — BORRADO DE REFERENCIAS
+---------------------------------------------
+Los eventos nuevos guardan el ID de la venta o vale. Al eliminar una operación,
+se registra un tombstone compartido en /usedDeleted, se retira su evento de
+/used y se limpia /usage. Los eventos antiguos sin ID se identifican por folio,
+tipo, almacén y la hora más cercana al ID local de la operación. El backfill
+respeta los tombstones y no vuelve a publicar una referencia eliminada.

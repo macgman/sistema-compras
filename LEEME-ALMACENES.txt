@@ -1,0 +1,145 @@
+COMPRA — DOS ALMACENES (inventario independiente, folio compartido)
+===================================================================
+
+QUÉ HACE
+- Almacén principal (ALM1): conserva EXACTAMENTE la ruta y los datos de siempre.
+- Almacén nuevo (ALM2): su propio inventario, Kardex, movimientos, ventas, vales
+  y entradas, en su propia ruta de Firebase:  compraPro/almacenes/<sala>/ALM2/...
+- Folio: UN solo contador para todo, en  compraPro/shared/<sala>/folio.
+  Ventas, vales manuales y entradas del almacén nuevo toman el siguiente número
+  (20, 21, 22, 23, 24...). Las entradas por remisión del almacén principal siguen
+  usando su folio ENT-fecha-id de siempre.
+- Cada usuario tiene "Almacén asignado": Almacén principal, Almacén nuevo o Todos
+  (solo administrador/MASTER).
+- Encargado de almacén: ve únicamente su almacén; el encabezado muestra una
+  etiqueta fija con el nombre del almacén.
+- Administrador/MASTER con "Todos": selector de almacén en el encabezado y, en
+  Movimientos, la opción "Ambos almacenes (juntos, solo lectura)". Los
+  inventarios NUNCA se mezclan: la memoria de la aplicación contiene un solo almacén.
+
+ARCHIVOS NUEVOS / CAMBIADOS
+  js/almacenes.js (nuevo)  · js/app.js, js/modulos.js, index.html, sw.js (ajustes)
+  database.rules.json (fase 1)  · database.rules.fase2-por-almacen.json (fase 2)
+Sube todo el sitio como siempre y abre con Ctrl+Shift+R una vez para forzar la descarga de los archivos nuevos.
+
+INSTALACIÓN EN DOS FASES
+FASE 1 — hoy, sin tocar el servidor de acceso
+  1. Sube el sitio.  2. Firebase > Realtime Database > Reglas: pega
+     database.rules.json y Publica (agrega las rutas almacenes y shared).
+  3. Entra como administrador, cambia a Almacén principal > Usuarios > Nuevo usuario,
+     elige "Almacén asignado: Almacén nuevo" y los permisos que necesite
+     (inventory.receive, inventory.create, etc.).
+  4. Entra con ese usuario: verá solo el almacén nuevo, vacío. Carga sus materiales
+     con Carga masiva o "Agregar material".
+  En esta fase los datos ya están separados, pero la SEGURIDAD es de pantalla:
+  las reglas solo piden auth != null.
+
+FASE 2 — separación real (requiere el servidor compra-pro-security en Render)
+  El servidor ya viene parcheado en compra-pro-security-almacenes.zip (v0.3.0):
+  reemplaza server.js, package.json y README.md en tu repositorio y despliega en Render
+  (no hay variables nuevas). Lo que cambia, como referencia, en /auth/login:
+
+    const role = user.role;  // 'master' | 'admin' | 'user' | 'folio'
+    const almacen = (role === 'admin' || role === 'master') ? '*'
+                  : (['ALM1','ALM2'].includes(user.almacenId) ? user.almacenId : 'ALM1');
+    const token = await admin.auth().createCustomToken(String(user.id), { role, almacen });
+    res.json({ ok: true, token, user: { id, username, name, role, permissions,
+                                        permissionsConfigured, almacenId: almacen } });
+
+  · almacenId debe salir de la base de usuarios del servidor, nunca de lo que envíe
+    el navegador. Si el servidor lee los usuarios de compraPro/rooms/<sala>/data/users,
+    el campo ya viene guardado ahí desde el formulario de usuarios.
+  · Los claims se aplican al siguiente inicio de sesión: pide a todos volver a entrar.
+  · Prueba con una cuenta MASTER, una ADMIN, un encargado de ALM1 y uno de ALM2.
+  · SOLO cuando las cuatro entren y sincronicen: publica
+    database.rules.fase2-por-almacen.json. Si se publica antes, nadie sincroniza.
+    Si algo falla: Firebase > Reglas > Historial > restaurar la versión anterior.
+  · El contador compartido avanza automáticamente y permite un retroceso solo
+    cuando se publica una nueva revisión de cambio manual (sequenceRevision).
+    Publica las reglas fase 2 actualizadas incluidas en este paquete.
+
+SI LOS FOLIOS NO SE SINCRONIZAN
+  1. Mira el rótulo de conexión: "Error de Firebase: revisa reglas/red" o el aviso
+     "Sin permiso para leer entradas" significan que las REGLAS publicadas en Firebase
+     no incluyen las rutas nuevas (compraPro/almacenes y compraPro/shared).
+  2. Firebase > Realtime Database > Reglas: deben aparecer las palabras "almacenes" y
+     "shared". Si no, pega database.rules.json y pulsa Publicar. (Si ves
+     "auth.token.almacen", publicaste la fase 2 antes de desplegar el servidor v0.3.0.)
+  3. Pulsa el botón del estetoscopio junto al selector de almacén (encabezado): prueba
+     las rutas y dice cuál regla falta.
+  4. Recarga con Ctrl+F5 en todas las PC (versión folios-sync-3).
+
+PRUEBAS RECOMENDADAS
+  1. Misma clave en ambos almacenes: cada uno conserva su propia existencia.
+  2. Encargado de ALM2: no ve inventario, movimientos ni Kardex de ALM1.
+  3. Venta (ALM1), vale (ALM1), venta (ALM1), entrada (ALM2), venta (ALM1): folios
+     consecutivos sin repetir.
+  4. Dos equipos guardando al mismo tiempo: folios distintos.
+  5. Admin: cambiar de almacén y ver Movimientos > "Ambos almacenes".
+  6. Fase 2: con el encargado de ALM2, intentar leer compraPro/rooms/<sala> debe
+     dar "permission denied".
+
+LÍMITES CONOCIDOS
+  - El almacén nuevo empieza vacío (sin catálogo).
+  - Los usuarios solo se administran desde el almacén principal.
+  - "Borrar todos los datos" (MASTER) limpia solo la sala principal: no borra el
+    almacén nuevo ni el contador compartido.
+  - Sin Internet el sistema usa un folio local de respaldo y podría repetir uno.
+  - "Ambos almacenes" lee los movimientos del otro almacén al activarlo; para
+    refrescarlos vuelve a elegir la opción.
+  - Respaldos y reportes corresponden, por diseño, al almacén activo.
+
+LO QUE SE PROBÓ (y lo que no)
+  Probado: sintaxis de todos los archivos; carga de almacenes.js con simulación de
+  navegador (rutas por almacén, usuario sin almacén, payload sin usuarios en ALM2);
+  simulación del contador compartido con dos almacenes (20,21,22,23,24, reservas
+  simultáneas y equipo atrasado).
+  NO probado: navegador real, Firebase real ni el servidor de acceso.
+
+
+CORRECCIÓN DE FOLIOS Y REGISTRO POR USUARIO (2026-11-12)
+========================================================
+- El navegador ahora escucha directamente `shared/<sala>/folio/sequence`, además
+  del estado visual, para actualizar el siguiente folio cuando otra PC reserva uno.
+- La sincronización compara primero el número del folio y no permite que una
+  marca de tiempo adelantada haga retroceder F-117 a F-116.
+- Ventas, vales y entradas por remisión avanzan el folio local de forma
+  monotónica: una operación que termina tarde no pisa un folio posterior ya
+  reservado por otra computadora.
+- Cada operación nueva registra el último folio usado por la cuenta en
+  `compraPro/shared/<sala>/folio/usage/<idUsuario>`. La tabla Usuarios muestra
+  el último folio utilizado y el tipo de operación, aunque se haya generado
+  desde el otro almacén.
+- Los folios históricos anteriores a esta actualización no se atribuyen
+  automáticamente a un usuario porque no guardaban esa relación. El registro
+  comienza con las operaciones nuevas.
+- No requiere cambios en el servidor de autenticación ni en las reglas actuales
+  de las dos fases: el nodo `shared/<sala>/folio` ya está contemplado.
+- Después de subir, recarga con Ctrl+F5 en todas las computadoras. El
+  Service Worker también cambia de versión para descartar los scripts viejos.
+
+
+CORRECCIÓN 2026-11-12 — FOLIOS Y ELIMINACIONES
+---------------------------------------------
+- El cambio manual de folio ahora publica una revisión autoritativa. Puede
+  establecer un número mayor o menor y se replica entre ambos almacenes.
+- La ruta compartida guarda revision/manual y sequenceRevision. La regla de
+  sequence permite bajar el contador únicamente mientras exista una revisión
+  manual nueva pendiente de confirmación; después se cierra esa autorización.
+- El historial cruzado registra el ID de la venta/vale. Al eliminarlo, se
+  escribe primero una marca de borrado en usedDeleted y después se retira de
+  used y del historial reciente del usuario. El backfill respeta esa marca.
+- Los borrados locales ahora se consideran definitivos por ID, sin comparar
+  relojes de computadoras distintas. Esto evita que una copia con hora adelantada
+  haga reaparecer una venta ya eliminada.
+
+IMPORTANTE PARA INSTALAR
+1. Publica el archivo de reglas correspondiente a la fase que ya utilizas:
+   - Fase 1: database.rules.json
+   - Fase 2: database.rules.fase2-por-almacen.json
+   No cambies de fase ni mezcles reglas.
+2. Sube TODO el contenido de este paquete al hosting estático, reemplazando
+   los archivos anteriores. El número de versión de scripts y caché ya cambió.
+3. Cierra y vuelve a abrir el sitio en ambos almacenes con Ctrl+Shift+R.
+4. No se requieren cambios en Render ni nuevas variables de entorno para esta
+   corrección.

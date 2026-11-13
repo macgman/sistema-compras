@@ -9,12 +9,18 @@ var isAdmin=function(){return hasPerm('users.manage')};
 var money=function(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})};
 /* ---------- Almacén compartido en Firebase (compraPro/ext/<sala>/...) con copia local ---------- */
 var ext={stockMin:{},prov:{},oc:{},cfg:{},entradas:{}},on=false,NAMES=['stockMin','prov','oc','cfg','entradas'];
-function room(){try{return String(getFirebaseRoomPath()).split('/').pop()}catch(e){return''}}
-function lk(n){return 'wr-ext-'+room()+'-'+n}
+function room(){try{return String((typeof getMainRoomPath==='function'?getMainRoomPath():getFirebaseRoomPath())).split('/').pop()}catch(e){return''}}
+function almId(){try{return typeof almacenActivo==='function'?almacenActivo():'ALM1'}catch(e){return'ALM1'}}
+function lk(n){return 'wr-ext-'+room()+(almId()==='ALM1'?'':'-'+almId())+'-'+n}
 function load(){NAMES.forEach(function(n){try{ext[n]=JSON.parse(localStorage.getItem(lk(n))||'{}')||{}}catch(e){}})}
-function ref(n){return firebaseDB.ref('compraPro/ext/'+room()+'/'+n)}
+function ref(n){return firebaseDB.ref(almId()==='ALM1'?'compraPro/ext/'+room()+'/'+n:'compraPro/almacenes/'+room()+'/'+almId()+'/ext/'+n)}
+var extFailAt=0,extToastAt=0;
 function listen(){if(on||!room())return;try{if(!firebaseReady||!firebaseDB)return}catch(e){return}
-  on=true;load();NAMES.forEach(function(n){ref(n).on('value',function(s){ext[n]=s.val()||{};try{localStorage.setItem(lk(n),JSON.stringify(ext[n]))}catch(e){}refresh()},function(){T('Sin permiso para leer '+n+'. Revisa las reglas de Firebase.','error')})})}
+  on=true;load();NAMES.forEach(function(n){ref(n).on('value',function(s){ext[n]=s.val()||{};try{localStorage.setItem(lk(n),JSON.stringify(ext[n]))}catch(e){}refresh()},function(){
+    /* Firebase cancela el listener (p. ej. se registró antes de que Firebase Auth restaurara la sesión):
+       se libera para reintentar solo; antes quedaba muerto hasta recargar la página. */
+    on=false;extFailAt=Date.now();NAMES.forEach(function(x){try{ref(x).off()}catch(e){}});
+    if(Date.now()-extToastAt>60000){extToastAt=Date.now();T('Sin permiso para leer '+n+'. Revisa las reglas de Firebase (database.rules.json). Se reintentará solo.','error')}})})}
 function put(n,id,v){var c=v===null?null:JSON.parse(JSON.stringify(v));if(c===null)delete ext[n][id];else ext[n][id]=c;
   try{localStorage.setItem(lk(n),JSON.stringify(ext[n]))}catch(e){}
   try{if(firebaseReady&&firebaseDB)ref(n).child(id).set(c).catch(function(){T('No se pudo guardar en la nube (¿sin permiso o sin conexión?)','error')})}catch(e){}refresh()}
@@ -309,7 +315,7 @@ function openEntrada(){
     $('#en-search').value='';$('#en-qty').value='1';drawItems();
   };
   $('#en-cancel').onclick=function(){m.classList.remove('open')};
-  $('#en-save').onclick=function(){
+  $('#en-save').onclick=async function(){
     if(!hasPerm('inventory.receive')){T('No tienes permiso para registrar entradas','error');return}
     var proveedor=$('#en-prov').value.trim(),remision=$('#en-rem').value.trim(),fecha=$('#en-fecha').value;
     if(!proveedor||!remision||!fecha||!$('#en-recibio').value.trim()){T('Completa proveedor, remisión, fecha y responsable de recepción','error');return}
@@ -317,12 +323,16 @@ function openEntrada(){
     var valid=[];
     for(var i=0;i<entDraft.length;i++){var x=entDraft[i],p=P.find(function(v){return String(v.id!=null?v.id:v.clave)===x.pid});if(!p){T('El material '+x.clave+' ya no existe en el catálogo','error');return}if(!(Number(x.cantidad)>0)||!(Number(x.costo)>=0)){T('Hay cantidades o costos inválidos','error');return}valid.push([p,x])}
     var id=uid(),folio='ENT-'+today().replace(/-/g,'')+'-'+id.slice(-5),now=Date.now();
+    if(almId()!=='ALM1'&&typeof almReserveFolio==='function'){try{folio=await almReserveFolio()}catch(e){console.error(e);T('No se pudo reservar el folio consecutivo','error');return}}
     var record={id:id,folio:folio,proveedor:proveedor,rfc:$('#en-rfc').value.trim(),remision:remision,fecha:fecha,factura:$('#en-factura').value.trim(),almacen:$('#en-almacen').value.trim(),recibio:$('#en-recibio').value.trim(),referencia:$('#en-ref').value.trim(),notas:$('#en-notas').value.trim(),items:entDraft.map(function(x){return Object.assign({},x)}),createdAt:now,createdBy:who(),status:'REGISTRADA'};
     try{
       valid.forEach(function(pair){var p=pair[0],x=pair[1],before=Number(p.cantidad)||0;p.cantidad=before+Number(x.cantidad);p.precio=Number(x.costo);p.factura=record.factura||record.remision;p.fecha_entrada=fecha;p.updatedAt=now;
         addMov('ENTRADA',p.id,x.cantidad,'Entrada por remisión '+remision+' · '+proveedor,folio,'',{fecha_factura:fecha,unitCost:Number(x.costo),partida:x.partida,clave:x.clave,desc:x.descripcion,kardexSource:'ENTRADA_REMISION'});
       });
       put('entradas',id,record);
+      if (typeof window.almRegisterFolioUse === 'function') {
+        window.almRegisterFolioUse(folio, 'Entrada por remisión');
+      }
       broadcastFullSync();
       ['renderInventario','renderDashboard','renderMovimientos','renderKardex'].forEach(function(f){try{if(typeof window[f]==='function')window[f]()}catch(e){}});
       m.classList.remove('open');T('Entrada registrada; existencias y Kardex actualizados');
@@ -407,7 +417,7 @@ function rSec(){var s=$('#section-seguridad');var d=defaultUsers();
     var ch='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789',pw='',a=new Uint32Array(10);crypto.getRandomValues(a);a.forEach(function(x){pw+=ch[x%ch.length]});pw+=(10+Math.floor(Math.random()*89));
     u.passHash=await hashSHA256(pw);u.updatedAt=Date.now();await broadcastFullSync();mo('Contraseña temporal','<p>Usuario: <b>'+E(u.username)+'</b></p><p style="font-size:1.4rem;font-family:monospace;margin:12px 0"><b>'+pw+'</b></p><p style="font-size:.85rem">Cópiala ahora: no se volverá a mostrar.</p>')}});
   $('#au-run').onclick=audit;$('#au-copy').onclick=function(){try{navigator.clipboard.writeText(RULES).then(function(){T('Reglas copiadas: pégalas en Firebase → Reglas')})}catch(e){}};audit()}
-var RULES='{\n  "rules": {\n    ".read": false,\n    ".write": false,\n    "compraPro": {\n      "rooms": { "$room": { ".read": "auth != null", ".write": "auth != null" } },\n      "ext": { "$room": { ".read": "auth != null", ".write": "auth != null" } }\n    }\n  }\n}';
+var RULES="{\n  \"rules\": {\n    \".read\": false,\n    \".write\": false,\n    \"compraPro\": {\n      \"rooms\": {\n        \"$room\": {\n          \".read\": \"auth != null\",\n          \".write\": \"auth != null\"\n        }\n      },\n      \"ext\": {\n        \"$room\": {\n          \".read\": \"auth != null\",\n          \".write\": \"auth != null\"\n        }\n      },\n      \"almacenes\": {\n        \"$room\": {\n          \"$alm\": {\n            \".read\": \"auth != null\",\n            \".write\": \"auth != null\"\n          }\n        }\n      },\n      \"shared\": {\n        \"$room\": {\n          \".read\": \"auth != null\",\n          \".write\": \"auth != null\"\n        }\n      }\n    }\n  }\n}";
 function audit(){var L=$('#au-list');if(!L)return;var out=[],good=0,total=4,local=location.protocol==='file:';
   function show(){L.innerHTML=out.join('')+'<div style="margin-top:8px;font-weight:800">Nivel de seguridad: '+good+' de '+total+'</div>'}
   function add(st,t,note,btn){if(st===true)good++;out.push('<div>'+(st===true?'✅':st==='info'?'ℹ️':'⚠️')+' '+t+(note?' <small style="color:'+(st===false?'#ef4444':'var(--text-light)')+'">'+note+'</small>':'')+(btn||'')+'</div>');show();
@@ -424,10 +434,13 @@ function auAct(){var a=this.getAttribute('data-au');
   else if(a==='rules'){try{navigator.clipboard.writeText(RULES).then(function(){T('Reglas copiadas. Pégalas en Firebase → Reglas → Publicar')})}catch(e){mo('Reglas de Firebase','<textarea style="width:100%;height:240px;font-family:monospace">'+E(RULES)+'</textarea>')}}
   else if(a==='fb')window.open('https://console.firebase.google.com/project/compra-pro-888c9/database/compra-pro-888c9-default-rtdb/rules','_blank','noopener');
   else if(a==='pw'){var t=$('#section-seguridad table');if(t)t.scrollIntoView({behavior:'smooth',block:'center'})}}
+/* ---------- Cambio de almacén: soltar y volver a conectar los datos extra ---------- */
+window.wrExtDetach=function(){try{NAMES.forEach(function(n){try{ref(n).off()}catch(e){}})}catch(e){}on=false;NAMES.forEach(function(n){ext[n]={}})};
+window.wrExtAttach=function(){load();listen();refresh()};
 /* ---------- Arranque ---------- */
 function init(){mkNav();mkSection('stock-minimo','');mkSection('ordenes','');mkSection('entradas','');mkSection('seguridad','')}
 init();load();
 var oRole=window.applyUserRole;window.applyUserRole=function(){var r=oRole.apply(this,arguments);load();listen();
   setTimeout(function(){if(hasPerm('users.manage')&&defaultUsers().some(function(u){return String(u.id)===String(currentUser.id)||u.username===currentUser.username}))pwModal(true)},1500);return r};
-setInterval(function(){if(!on&&typeof currentUser!=='undefined'&&currentUser)listen()},4000);
+setInterval(function(){if(!on&&typeof currentUser!=='undefined'&&currentUser&&Date.now()-extFailAt>20000)listen()},4000);
 })();

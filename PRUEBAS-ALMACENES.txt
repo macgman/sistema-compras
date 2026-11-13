@@ -1,0 +1,71 @@
+PRUEBAS DE ALMACENES Y FOLIO COMPARTIDO (2026-11-12)
+Método: se cargaron app.js, almacenes.js y modulos.js REALES en un navegador simulado, con dos
+o tres PC conectadas a un Firebase simulado que evalúa las reglas de database.rules*.json.
+No es el Firebase real: confirma la lógica, no sustituye una prueba con dos equipos.
+
+PROBLEMAS ENCONTRADOS Y CORREGIDOS
+1. Reglas de Firebase sin las rutas nuevas -> "Error de Firebase" en el almacén nuevo y
+   folios que no se comparten (reproducido con las reglas anteriores). La app ahora avisa
+   qué regla falta (botón estetoscopio) y advierte si usa un folio local que podría repetirse.
+2. Recarga con Firebase Auth tardío: el listener del folio compartido quedaba muerto y la PC
+   dejaba de ver los folios nuevos. Corregido (se libera y se vuelve a registrar).
+3. Relojes distintos entre PC: el folio de una PC con hora atrasada no se publicaba y la otra
+   PC mostraba un folio viejo. Corregido (se compara por número de folio, no por reloj).
+4. Entradas / datos extra del almacén: igual que el punto 2, quedaban sin sincronizar tras
+   un rechazo inicial. Corregido (reintento automático, un solo aviso por minuto).
+
+RESULTADOS (versión corregida)
+A  Reglas fase 1, 2 PC: folios 116,117,118,119 sin repetir, pantallas sincronizadas ........ OK
+B  Reglas anteriores: reproduce el error de la captura ..................................... OK
+C  Fase 2 con permisos: 3 PC, aislamiento entre almacenes, contador solo avanza ............ OK
+D  Fase 2 con servidor sin permisos por almacén: todo denegado (esperado) .................. OK
+E  Recarga con sesión de Firebase tardía ................................................... OK
+G  Relojes desfasados 10 min ............................................................... OK
+H  Admin cambia de almacén durante la operación ............................................ OK
+J  Cambio manual de folio (F-050) visible en ambos almacenes ............................... OK
+M  30 guardados simultáneos desde 3 PC: 30 folios únicos, sin huecos ....................... OK
+N  Entrada del almacén nuevo toma folio del contador compartido ............................ OK
+K/L Avisos de reglas faltantes y botón de diagnóstico ...................................... OK
+P  Entradas del almacén nuevo tras recarga tardía .......................................... OK
+NO probado: navegador real, Firebase real, servidor de Render real.
+
+
+CORRECCIONES ADICIONALES DE FOLIOS (2026-11-12)
+================================================
+[OK] node --check js/app.js
+[OK] node --check js/almacenes.js
+[OK] node --check js/modulos.js
+[OK] node --check js/pro-ui.js
+[OK] node --check js/capa-web.js
+[OK - LÓGICA] El merge de estado no acepta F-116 sobre F-117 aunque el reloj remoto sea mayor.
+[OK - LÓGICA] Una secuencia compartida 116 actualiza el folio visible al siguiente (F-117).
+[OK - CÓDIGO] Una reserva paralela posterior no permite que una operación anterior haga
+     retroceder el folio visible al terminar.
+[OK - CÓDIGO] Se registra el folio usado por ventas, vales manuales y entradas por remisión.
+[OK - CÓDIGO] La tabla Usuarios muestra el último folio usado por cada cuenta desde el
+     nodo compartido, independientemente del almacén donde se generó.
+[OK - LÓGICA] El consumo de un folio manual confirma la secuencia para evitar
+     que otra PC vuelva a reservar el mismo número.
+
+NO probado en esta revisión: Firebase real, Render real ni dos navegadores físicos.
+La verificación de sincronización remota debe completarse después de desplegar
+el sitio, usando las pruebas de dos computadoras indicadas arriba.
+
+
+CORRECCIÓN DE SINCRONIZACIÓN MANUAL Y BORRADOS (2026-11-12)
+==========================================================
+Nuevos casos cubiertos por la corrección:
+- Una revisión manual nueva puede sincronizar F-050 sobre F-120 en ambos almacenes.
+- Una publicación automática atrasada no puede sobreescribir una revisión manual
+  más nueva ni hacer retroceder el contador.
+- sequenceRevision cierra la autorización de retroceso después de cada cambio
+  manual; los avances automáticos siguen permitidos.
+- Las marcas de borrado ocultan registros por ID incluso si updatedAt es mayor
+  por diferencias de reloj entre computadoras.
+- La eliminación de una venta/vale retira el evento de /used y /usage y deja una
+  marca /usedDeleted para impedir que el backfill lo recupere.
+- Los eventos nuevos quedan vinculados al ID de la venta/vale, evitando borrar
+  otra operación que haya reutilizado el mismo folio.
+- Al conectar, el índice compartido depura referencias huérfanas cuando detecta
+  el tombstone correspondiente en los datos del almacén de origen.
+Pruebas contra Firebase real y dos navegadores físicos: pendientes del despliegue.

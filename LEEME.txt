@@ -92,3 +92,6 @@ a cualquier usuario autenticado en las rutas indicadas. Por tanto, aun falta
 validar permisos y roles en el servidor y emitir claims verificables de Firebase
 para impedir operaciones directas fuera de la interfaz. No publicar reglas
 basadas en claims hasta que el servidor realmente emita esas claims.
+
+
+Ver LEEME-ALMACENES.txt (dos almacenes, 2026-11-12).

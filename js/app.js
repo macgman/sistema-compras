@@ -661,10 +661,10 @@ function mergeTombstones(localList, remoteList) {
 
 function isTombstoned(tombstoneArr, item) {
   if (!item || !Array.isArray(tombstoneArr) || !tombstoneArr.length) return false;
-  const t = tombstoneArr.find(x => String(x.id) === String(item.id));
-  if (!t) return false;
-  const itemTime = Number(item.updatedAt) || 0;
-  return (Number(t.deletedAt) || 0) >= itemTime;
+  // El ID del registro es la identidad de la operación. Una vez eliminado,
+  // el tombstone manda aunque otra computadora tenga el reloj adelantado:
+  // comparar deletedAt contra updatedAt permitía que una copia vieja resucitara.
+  return tombstoneArr.some(t => t && String(t.id) === String(item.id));
 }
 
 function applyTombstones(arr, tombstoneArr) {
@@ -725,29 +725,50 @@ function mergeFirebaseState(remote) {
     users = applyTombstones(mergeUsers(users, d.users), deletedUsers);
   }
 
+  // Cuando está activo el módulo de dos almacenes, el folio compartido es
+  // la única autoridad. Evita que un snapshot antiguo de la ruta local vuelva
+  // a imponer un folio anterior después de recibir un cambio manual global.
+  const sharedFolioAuthority = typeof window.almHasSharedFolioAuthority === 'function' &&
+    window.almHasSharedFolioAuthority();
+  if (!sharedFolioAuthority) {
   // El folioState es la autoridad para el consecutivo. Si el archivo remoto
   // todavía no tiene folioState, usamos los campos heredados por compatibilidad.
   const remoteFolioValue = remote?.folioState?.value || d.currentFolio || '';
   const remoteFolioTime = Number(remote?.folioState?.updatedAt || d.currentFolioUpdatedAt) || 0;
-  if (remoteFolioValue && remoteFolioTime > (Number(currentFolioUpdatedAt) || 0)) {
-    // Un folio remoto con marca de tiempo más reciente debe actualizar
-    // también equipos que anteriormente hicieron un ajuste manual local.
+  const localFolioTime = Number(currentFolioUpdatedAt) || 0;
+  const remoteFolioNumber = getFolioNumber(remoteFolioValue);
+  const localFolioNumber = getFolioNumber(currentFolio);
+
+  // El número del folio tiene prioridad sobre el reloj de cada computadora.
+  // Un equipo con hora adelantada no puede hacer retroceder el consecutivo
+  // enviando un folio menor con una marca de tiempo más nueva.
+  const remoteFolioIsAhead = remoteFolioNumber > localFolioNumber;
+  const sameFolioButNewer = remoteFolioNumber > 0 &&
+    remoteFolioNumber === localFolioNumber && remoteFolioTime > localFolioTime;
+  const manualWasSupersededRemotely = folioManualOverrideActive &&
+    remoteFolioNumber > localFolioNumber && remoteFolioTime > localFolioTime;
+  if (remoteFolioValue && (
+    (remoteFolioIsAhead && (!folioManualOverrideActive || manualWasSupersededRemotely)) ||
+    sameFolioButNewer
+  )) {
     currentFolio = String(remoteFolioValue);
-    currentFolioUpdatedAt = remoteFolioTime;
+    currentFolioUpdatedAt = Math.max(remoteFolioTime, localFolioTime);
     folioManualOverrideActive = false;
     idbSetMeta('folio_manual_override', false).catch(() => {});
   }
 
-  // El sequence nunca puede reemplazar un folio manual más reciente.
-  // Solo sirve para avanzar si pertenece a la misma versión remota.
+  // El contador remoto solo puede adelantar el folio visible; nunca hacerlo
+  // retroceder. La secuencia representa el último número reservado.
   const remoteSequence = Number(remote?.folioState?.sequence ?? d.folioSequence);
-  if (!folioManualOverrideActive && Number.isFinite(remoteSequence) && remoteSequence >= 0 && remoteFolioTime > 0 && remoteFolioTime >= (Number(currentFolioUpdatedAt) || 0)) {
+  if (!folioManualOverrideActive && Number.isFinite(remoteSequence) && remoteSequence >= 0 && remoteFolioValue) {
     const remoteNext = remoteSequence + 1;
     const localNext = getFolioNumber(currentFolio);
-    if (remoteNext > localNext && remoteFolioValue) {
+    if (remoteNext > localNext) {
       currentFolio = buildFolioFromNumber(remoteNext, remoteFolioValue);
-      currentFolioUpdatedAt = remoteFolioTime;
+      currentFolioUpdatedAt = Math.max(Date.now(), localFolioTime + 1, remoteFolioTime);
     }
+  }
+
   }
 
   sanitizeStoredData();
@@ -858,7 +879,9 @@ async function firebaseConnectRoomInner() {
 
       const fs = remote?.folioState;
       const fsTime = Number(fs?.updatedAt) || 0;
-      if (fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
+      const sharedFolioAuthority = typeof window.almHasSharedFolioAuthority === 'function' &&
+        window.almHasSharedFolioAuthority();
+      if (!sharedFolioAuthority && fs?.value && fsTime > (Number(currentFolioUpdatedAt) || 0)) {
         currentFolio = String(fs.value);
         currentFolioUpdatedAt = fsTime;
         folioManualOverrideActive = false;
@@ -1786,9 +1809,11 @@ async function attemptLoginMulti() {
       name: String(result.user.name || result.user.username || username),
       username: String(result.user.username || username),
       permissions: Array.isArray(result.user.permissions) ? expandPermissionAliases(result.user.permissions) : undefined,
-      permissionsConfigured: result.user.permissionsConfigured === true
+      permissionsConfigured: result.user.permissionsConfigured === true,
+      almacenId: result.user.almacenId || undefined
     };
     normalizeUserPermissions(currentUser);
+    if (typeof almacenesAfterLogin === 'function') await almacenesAfterLogin(currentUser);
 
     sessionStorage.setItem(STORAGE_PREFIX + 'session', JSON.stringify(currentUser));
     applyUserRole();
@@ -1874,7 +1899,7 @@ function renderUsersTable() {
       <tr>
         <td><strong>${esc(u.username)}</strong> ${isCurrent ? '<small style="color:#059669;">(T&uacute;)</small>' : ''}</td>
         <td>${esc(u.name)}</td>
-        <td><span class="role-badge ${u.role === 'master' ? 'role-master' : (u.role === 'admin' ? 'role-admin' : 'role-user')}">${u.role === 'master' ? 'MASTER' : (u.role === 'admin' ? 'ADMINISTRADOR' : (u.role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO'))}</span></td>
+        <td><span class="role-badge ${u.role === 'master' ? 'role-master' : (u.role === 'admin' ? 'role-admin' : 'role-user')}">${u.role === 'master' ? 'MASTER' : (u.role === 'admin' ? 'ADMINISTRADOR' : (u.role === 'folio' ? 'USUARIO + FOLIO' : 'USUARIO'))}</span>${typeof almacenUserLabel === 'function' ? almacenUserLabel(u) : ''}</td>
         <td><span class="badge ${isActive ? 'badge-ok' : 'badge-critical'}">${isActive ? 'ACTIVO' : 'INACTIVO'}</span></td>
         <td>
           <div style="display:flex; gap:6px;">
@@ -1896,6 +1921,7 @@ function openUserModal(id = null) {
   document.getElementById('user-username').value = u ? u.username : '';
   document.getElementById('user-password').value = '';
   document.getElementById('user-role').value = u && u.role !== 'master' ? u.role : 'user';
+  if (typeof almacenToUserForm === 'function') almacenToUserForm(u);
   const roleSelect = document.getElementById('user-role');
   if (roleSelect) {
     const adminOption = roleSelect.querySelector('option[value="admin"]');
@@ -1924,6 +1950,8 @@ async function saveUserData() {
   const role = document.getElementById('user-role').value;
   if (role === 'admin' && !isMasterUser()) { showToast('Solo MASTER puede crear o asignar administradores.', 'error'); return; }
   const permissions = readPermissionEditor().filter(permission => permission !== 'system.reset');
+  const almacenId = (typeof almacenFromUserForm === 'function') ? almacenFromUserForm(role) : undefined;
+  if (almacenId === false) return;
 
   if (!name || !username) {
     showToast('Complete el nombre y el usuario', 'error');
@@ -1958,6 +1986,7 @@ async function saveUserData() {
         showToast('Solo MASTER puede modificar la cuenta MASTER.', 'error'); return;
       }
       users[idx].role = role;
+      users[idx].almacenId = almacenId;
       users[idx].permissions = role === 'master' ? [] : permissions;
       users[idx].permissionsConfigured = role !== 'master';
       users[idx].updatedAt = now;
@@ -1970,6 +1999,7 @@ async function saveUserData() {
       username,
       passHash: await hashSHA256(pass),
       role,
+      almacenId,
       permissions: role === 'master' ? [] : permissions,
       permissionsConfigured: role !== 'master',
       active: true,
@@ -2952,12 +2982,15 @@ async function reserveNextSharedFolio(requestedFolio, token) {
   const MAX_GAP = 25;
 
   try {
-    const sequenceRef = firebaseDB.ref(getFirebaseRoomPath() + '/data/folioSequence');
+    const sequenceRef = firebaseDB.ref(typeof almFolioSequencePath === 'function' ? almFolioSequencePath() : (getFirebaseRoomPath() + '/data/folioSequence'));
     const result = await sequenceRef.transaction(current => {
       // Si la espera ya se canceló, se aborta: no se consume ningún número.
       if (token && token.cancelled) return;
       let currentNumber = Number(current) || 0;
-      if (currentNumber > localCeiling + MAX_GAP) {
+      // Con el contador compartido entre almacenes el número puede avanzar
+      // legítimamente mucho más que el folio que muestra un equipo atrasado:
+      // la corrección de "contador inflado" solo aplica al contador antiguo.
+      if (typeof almFolioSequencePath !== 'function' && currentNumber > localCeiling + MAX_GAP) {
         console.warn('[FOLIO] Contador remoto inflado (' + currentNumber + '); se corrige a ' + (localCeiling - 1));
         currentNumber = localCeiling - 1;
       }
@@ -3045,6 +3078,7 @@ async function prepareFolioForNewVenta(capturedFolio) {
   // Respaldo local cuando Firebase está desconectado o tarda demasiado.
   // Mantiene el consecutivo mostrado; el historial se usa para detectar
   // duplicados, no para saltar el contador a un folio antiguo como F-431.
+  try { if (typeof almFolioFallbackWarn === 'function') almFolioFallbackWarn(); } catch (_) {}
   const nextNumber = Math.max(1, getFolioNumber(normalizedCurrent));
   return buildFolioFromNumber(nextNumber, normalizedCurrent);
 }
@@ -3185,8 +3219,13 @@ async function _saveVentaCore() {
     ventas.unshift(v);
     // El folio siguiente siempre se calcula a partir del folio realmente
     // utilizado, nunca a partir de un valor que pudiera quedar obsoleto.
-    currentFolio = buildFolioFromNumber(getFolioNumber(folio) + 1, folio);
-    currentFolioUpdatedAt = Date.now();
+    // Otra computadora puede haber reservado un folio posterior mientras
+    // esta venta terminaba. Nunca retroceder el consecutivo local.
+    currentFolio = buildFolioFromNumber(
+      Math.max(getFolioNumber(currentFolio), getFolioNumber(folio) + 1),
+      currentFolio || folio
+    );
+    currentFolioUpdatedAt = Math.max(Date.now(), (Number(currentFolioUpdatedAt) || 0) + 1);
     // Persistir inmediatamente el siguiente folio evita que otra opción o
     // una recarga vuelva a mostrar el número anterior.
     await idbSetMeta('folio', currentFolio);
@@ -3227,6 +3266,22 @@ async function _saveVentaCore() {
   // Guardar primero la copia local. La ventana de impresión no debe esperar
   // a que termine la lectura/escritura de Firebase.
   await saveLocalData();
+
+  // Deja constancia del último folio utilizado por esta cuenta. El registro
+  // vive en la ruta compartida para que también se vea desde el otro almacén.
+  if (typeof window.almRegisterFolioUse === 'function') {
+    if (!isEditing) {
+      window.almRegisterFolioUse(folio, 'Venta', v.id, v.fecha);
+    } else if (old && String(old.folio || '') !== String(v.folio || '')) {
+      if (typeof window.almRemoveFolioUse === 'function') {
+        await window.almRemoveFolioUse(old.folio, 'Venta', v.id);
+      }
+      window.almRegisterFolioUse(v.folio, 'Venta', v.id, v.fecha);
+    } else if (old) {
+      // Actualiza la fecha de referencia aunque el número de folio no cambie.
+      window.almRegisterFolioUse(v.folio, 'Venta', v.id, v.fecha);
+    }
+  }
 
   renderDashboard();
   renderHistorialVentas();
@@ -3620,36 +3675,114 @@ function normalizeValeForF361(v) {
 
 function renderHistorialVentas() {
   const q = normalizeSearchText(document.getElementById('hv-search').value);
-  const sortMode = document.getElementById('hv-sort')?.value || 'reciente';
+  const sortMode = document.getElementById('hv-sort')?.value || 'folio-mes-actual';
+  // El historial abre en el mes calendario actual y ordena los folios
+  // numéricamente de mayor a menor. "folio-desc" conserva la vista histórica
+  // de todos los meses; los filtros de tipo mantienen el orden por fecha.
+  const currentMonthKey = getVentaYearMonth(todayISO());
+  const effectiveSortMode = (sortMode === 'solo-venta' || sortMode === 'solo-vale')
+    ? 'reciente' : sortMode;
 
+  const crossStoreUses = typeof window.almGetCrossStoreFolioRecords === 'function'
+    ? window.almGetCrossStoreFolioRecords() : [];
+  const crossStoreRecords = crossStoreUses.map(x => ({
+    ...x,
+    id: `cross-${x.historyKey || ''}-${x.eventId || x.usedAt || ''}`,
+    fecha: x.recordDate
+      ? (isNaN(new Date(String(x.recordDate) + (String(x.recordDate).length === 10 ? 'T00:00:00' : '')).getTime())
+          ? String(x.recordDate)
+          : new Date(String(x.recordDate) + (String(x.recordDate).length === 10 ? 'T00:00:00' : '')).toLocaleDateString('es-MX'))
+      : (x.usedAt ? new Date(Number(x.usedAt)).toLocaleDateString('es-MX') : ''),
+    _sortAt: Number(x.usedAt) || 0,
+    _recordType: 'cross-store'
+  }));
   const records = [
-    ...(Array.isArray(ventas) ? ventas.map(v => ({ ...v, _recordType: 'venta' })) : []),
-    ...(Array.isArray(valesManuales) ? valesManuales.map(v => ({ ...v, _recordType: 'vale' })) : [])
+    ...(Array.isArray(ventas) ? ventas.map(v => ({ ...v, _sortAt: Date.parse(String(v.fecha || '')) || Number(v.updatedAt) || Number(v.id) || 0, _recordType: 'venta' })) : []),
+    ...(Array.isArray(valesManuales) ? valesManuales.map(v => ({ ...v, _sortAt: Date.parse(String(v.fecha || '')) || Number(v.updatedAt) || Number(v.id) || 0, _recordType: 'vale' })) : []),
+    ...crossStoreRecords
   ].filter(v => {
     if (v._recordType === 'venta' && !hasAnyPermission(['purchases.view','purchases.edit','purchases.delete'])) return false;
     if (v._recordType === 'vale' && !hasAnyPermission(['vouchers.view','vouchers.edit','vouchers.delete'])) return false;
+    if (v._recordType === 'cross-store' && String(v.type || '').toLowerCase().includes('vale') && !hasAnyPermission(['vouchers.view','vouchers.edit','vouchers.delete'])) return false;
+    if (v._recordType === 'cross-store' && !String(v.type || '').toLowerCase().includes('vale') && !hasAnyPermission(['purchases.view','purchases.edit','purchases.delete'])) return false;
     // Filtro por tipo de registro seleccionado en el historial.
-    if (sortMode === 'solo-venta' && v._recordType !== 'venta') return false;
-    if (sortMode === 'solo-vale' && v._recordType !== 'vale') return false;
+    if (sortMode === 'solo-venta' && !(v._recordType === 'venta' || (v._recordType === 'cross-store' && !String(v.type || '').toLowerCase().includes('vale')))) return false;
+    if (sortMode === 'solo-vale' && !(v._recordType === 'vale' || (v._recordType === 'cross-store' && String(v.type || '').toLowerCase().includes('vale')))) return false;
+    // El modo principal excluye folios de meses anteriores. getVentaYearMonth
+    // reconoce fechas ISO y fechas históricas DD/MM/YYYY.
+    if (effectiveSortMode === 'folio-mes-actual' && getVentaYearMonth(v.fecha) !== currentMonthKey) return false;
     // No mostrar registros que ya tienen un borrado confirmado. Esto es
     // especialmente importante para Vale Manual, porque su eliminacion usa
     // tombstones para que el borrado se conserve al sincronizar.
     if (v._recordType === 'venta' && isTombstoned(deletedVentas, v)) return false;
     if (v._recordType === 'vale' && isTombstoned(deletedValesManuales, v)) return false;
 
-    const searchable = [v.folio, v.cliente, v.trabajador, v.departamento, v.cargo, v.tipo, v.compra]
+    const searchable = [v.folio, v.cliente, v.trabajador, v.departamento, v.cargo, v.tipo, v.compra, v.name, v.username, v.almacen]
       .map(normalizeSearchText).join(' ');
     return searchable.includes(q);
   }).sort((a, b) => {
-    if (sortMode === 'total-desc') return (Number(b.total) || 0) - (Number(a.total) || 0);
-    if (sortMode === 'total-asc') return (Number(a.total) || 0) - (Number(b.total) || 0);
+    if (effectiveSortMode === 'total-desc') return (Number(b.total) || 0) - (Number(a.total) || 0);
+    if (effectiveSortMode === 'total-asc') return (Number(a.total) || 0) - (Number(b.total) || 0);
+
+    // Orden numérico real del folio (F-140 antes de F-139), sin depender
+    // de la hora local del equipo ni de cuándo llegó el evento a Firebase.
+    if (effectiveSortMode === 'folio-desc' || effectiveSortMode === 'folio-mes-actual') {
+      const folioNumber = value => {
+        const match = String(value || '').match(/(\d+)\s*$/);
+        return match ? Number(match[1]) : -1;
+      };
+      const folioComp = folioNumber(b.folio) - folioNumber(a.folio);
+      if (folioComp !== 0) return folioComp;
+      const folioTextComp = String(b.folio || '').localeCompare(String(a.folio || ''), 'es', {numeric:true, sensitivity:'base'});
+      if (folioTextComp !== 0) return folioTextComp;
+    }
+
+    const timeComp = (Number(b._sortAt) || 0) - (Number(a._sortAt) || 0);
+    if (timeComp !== 0) return effectiveSortMode === 'antiguo' ? -timeComp : timeComp;
     const fechaComp = String(b.fecha || '').localeCompare(String(a.fecha || ''));
-    if (fechaComp !== 0) return sortMode === 'antiguo' ? -fechaComp : fechaComp;
+    if (fechaComp !== 0) return effectiveSortMode === 'antiguo' ? -fechaComp : fechaComp;
     const idComp = (Number(b.id) || 0) - (Number(a.id) || 0);
-    return sortMode === 'antiguo' ? -idComp : idComp;
+    return effectiveSortMode === 'antiguo' ? -idComp : idComp;
   });
 
   document.getElementById('hv-list').innerHTML = records.slice(0, 100).map(v => {
+    if (v._recordType === 'cross-store') {
+      const warehouseName = v.almacen === 'ALM1' ? 'Almacén principal' : (v.almacen === 'ALM2' ? 'Almacén nuevo' : (v.almacen || 'otro almacén'));
+      const operator = v.name || v.username || 'Usuario no identificado';
+      const operation = v.type || 'Operación';
+      const crossIsVale = String(operation).toLowerCase().includes('vale');
+      const crossCanManage = !!currentUser &&
+        (currentUser.role === 'master' || currentUser.role === 'admin' || currentUser.almacenId === '*') &&
+        v.recordId !== undefined && v.recordId !== null && String(v.recordId) !== '';
+      const crossActions = crossCanManage ? `
+        <div style="display:flex;justify-content:flex-end;gap:7px;margin-top:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary btn-sm historial-action"
+            data-permission="${crossIsVale ? 'vouchers.edit' : 'purchases.edit'}"
+            data-action="edit" data-record-type="cross-store" data-operation-type="${crossIsVale ? 'vale' : 'venta'}"
+            data-cross-store="1" data-warehouse="${esc(v.almacen)}" data-record-id="${esc(v.recordId)}"
+            title="Cambiar al almacén propietario y modificar este registro"><i class="fas fa-edit"></i> Modificar</button>
+          <button type="button" class="btn btn-danger btn-sm historial-action"
+            data-permission="${crossIsVale ? 'vouchers.delete' : 'purchases.delete'}"
+            data-action="delete" data-record-type="cross-store" data-operation-type="${crossIsVale ? 'vale' : 'venta'}"
+            data-cross-store="1" data-warehouse="${esc(v.almacen)}" data-record-id="${esc(v.recordId)}"
+            title="Cambiar al almacén propietario y eliminar este registro"><i class="fas fa-trash"></i> Eliminar</button>
+        </div>` : '';
+      return `
+      <div class="stat-card cross-store-folio-card" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; gap:14px; border-left:5px solid #0ea5e9; background:linear-gradient(90deg, rgba(14,165,233,.07), #fff 42%);">
+        <div style="min-width:0;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong>${esc(v.folio)}</strong> - <span>Folio utilizado por otro almacén</span>
+            <span style="display:inline-block; border-radius:999px; padding:3px 9px; background:#e0f2fe; color:#075985; font-size:11px; font-weight:800; letter-spacing:.02em;">UTILIZADO EN ${esc(warehouseName.toUpperCase())}</span>
+          </div>
+          <small style="display:block; color:#64748b; margin-top:5px;">${esc(v.fecha || '')} | ${esc(operation)} | Registrado por: ${esc(operator)}</small>
+          <small style="display:block; color:#64748b; margin-top:3px;">Solo referencia: el detalle de la compra y su inventario pertenecen a ${esc(warehouseName)}.</small>
+        </div>
+        <div style="flex:0 0 auto; min-width:130px; text-align:right;">
+          <span style="font-size:12px; font-weight:800; color:#0369a1;"><i class="fas fa-exchange-alt"></i> OTRO ALMACÉN</span>
+          ${crossActions}
+        </div>
+      </div>`;
+    }
     const isVale = v._recordType === 'vale';
     const nombre = isVale ? (v.departamento || 'Sin departamento') : (v.cliente || 'Sin solicitante');
     const subtitulo = isVale
@@ -3664,8 +3797,8 @@ function renderHistorialVentas() {
         <div style="font-weight:800; color:#059669; margin-bottom:8px;">$${fmt(v.total)}</div>
         <div style="display:flex; gap:8px;">
           <button type="button" class="btn btn-outline btn-sm historial-action" data-permission="${isVale ? 'vouchers.view' : 'purchases.view'}" data-action="view" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-eye"></i> Ver</button>
-          <button type="button" class="btn btn-primary btn-sm admin-inline historial-action" data-permission="${isVale ? 'vouchers.edit' : 'purchases.edit'}" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
-          <button type="button" class="btn btn-danger btn-sm admin-inline historial-action" data-permission="${isVale ? 'vouchers.delete' : 'purchases.delete'}" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-primary btn-sm historial-action" data-permission="${isVale ? 'vouchers.edit' : 'purchases.edit'}" data-action="edit" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}"><i class="fas fa-edit"></i> Modificar</button>
+          <button type="button" class="btn btn-danger btn-sm historial-action" data-permission="${isVale ? 'vouchers.delete' : 'purchases.delete'}" data-action="delete" data-record-type="${isVale ? 'vale' : 'venta'}" data-record-id="${esc(recordId)}" title="Eliminar"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     </div>`;
@@ -3677,7 +3810,7 @@ function renderHistorialVentas() {
   // generado y funcionan igual para Venta y Vale Manual.
   const historyList = document.getElementById('hv-list');
   if (historyList && !historyList.dataset.actionsReady) {
-    historyList.addEventListener('click', function(e) {
+    historyList.addEventListener('click', async function(e) {
       const button = e.target.closest('button.historial-action');
       if (!button || !historyList.contains(button)) return;
       e.preventDefault();
@@ -3687,6 +3820,48 @@ function renderHistorialVentas() {
       const type = button.dataset.recordType;
       const id = button.dataset.recordId;
       if (!id) return;
+
+      // MASTER/administrador puede gestionar una referencia cruzada, pero
+      // la operación siempre se ejecuta dentro del almacén propietario.
+      if (button.dataset.crossStore === '1') {
+        const operationType = button.dataset.operationType === 'vale' ? 'vale' : 'venta';
+        const permission = operationType === 'vale'
+          ? (action === 'edit' ? 'vouchers.edit' : 'vouchers.delete')
+          : (action === 'edit' ? 'purchases.edit' : 'purchases.delete');
+        if (!requirePermission(permission)) return;
+        const targetWarehouse = button.dataset.warehouse;
+        if (!targetWarehouse || typeof window.switchAlmacen !== 'function') {
+          showToast('No fue posible identificar el almacén propietario de este folio.', 'error');
+          return;
+        }
+        try {
+          await window.switchAlmacen(targetWarehouse, { silent: true });
+          const hasTargetRecord = () => operationType === 'vale'
+            ? (Array.isArray(valesManuales) && valesManuales.some(x => String(x.id) === String(id)))
+            : (Array.isArray(ventas) && ventas.some(x => String(x.id) === String(id)));
+          // Si esta computadora nunca había abierto el almacén destino, la
+          // copia local puede estar vacía mientras llega el primer snapshot.
+          for (let attempt = 0; attempt < 25 && !hasTargetRecord(); attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 120));
+          }
+          if (!hasTargetRecord()) {
+            showToast('El registro no está disponible en la copia local del almacén. Espera a que termine la sincronización y vuelve a intentarlo.', 'warning');
+            renderHistorialVentas();
+            return;
+          }
+          if (action === 'edit') {
+            if (operationType === 'vale') editValeManual(id);
+            else editVenta(id);
+          } else if (action === 'delete') {
+            if (operationType === 'vale') await deleteValeManual(id);
+            else await deleteVenta(id);
+          }
+        } catch (error) {
+          console.error('[HISTORIAL] No se pudo gestionar el registro cruzado:', error);
+          showToast('No se pudo abrir el almacén propietario. Intenta nuevamente.', 'error');
+        }
+        return;
+      }
 
       if (action === 'view') {
         if (type === 'vale') viewValeManual(id);
@@ -5117,6 +5292,11 @@ async function deleteVenta(id) {
 
   ventas = ventas.filter(x => String(x.id) !== String(id));
   markDeleted(deletedVentas, v.id);
+  // Retirar también la referencia compartida del folio; si Firebase no está
+  // disponible, el módulo la deja en cola para reintentar al reconectar.
+  if (typeof window.almRemoveFolioUse === 'function') {
+    await window.almRemoveFolioUse(v.folio, 'Venta', v.id);
+  }
 
   // Esperar el guardado/sincronizacion para evitar que una lectura remota
   // inmediata vuelva a mostrar la compra que acaba de eliminarse.
@@ -5877,6 +6057,9 @@ async function deleteValeManual(id) {
   valesManuales = valesManuales.filter(x => String(x.id) !== String(id));
   markDeleted(deletedValesManuales, v.id);
   valesManuales = applyTombstones(valesManuales, deletedValesManuales);
+  if (typeof window.almRemoveFolioUse === 'function') {
+    await window.almRemoveFolioUse(v.folio, 'Vale manual', v.id);
+  }
 
   try {
     await saveLocalData();
@@ -6121,8 +6304,12 @@ async function _saveValeManualCore() {
     editingValeManualId = null;
   } else {
     valesManuales.unshift(vale);
-    currentFolio = buildFolioFromNumber(getFolioNumber(folio) + 1, folio);
-    currentFolioUpdatedAt = Date.now();
+    // Mantener el mayor consecutivo si otra PC reservó números en paralelo.
+    currentFolio = buildFolioFromNumber(
+      Math.max(getFolioNumber(currentFolio), getFolioNumber(folio) + 1),
+      currentFolio || folio
+    );
+    currentFolioUpdatedAt = Math.max(Date.now(), (Number(currentFolioUpdatedAt) || 0) + 1);
     await idbSetMeta('folio', currentFolio);
   }
 
@@ -6142,6 +6329,10 @@ async function _saveValeManualCore() {
   // La sincronización con Firebase se realiza en segundo plano para no hacer
   // esperar al usuario después de finalizar el vale.
   await saveLocalData();
+
+  if (typeof window.almRegisterFolioUse === 'function') {
+    window.almRegisterFolioUse(folio, 'Vale manual', vale.id, vale.fecha);
+  }
 
   clearValeManual();
   renderHistorialVentas();

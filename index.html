@@ -18,7 +18,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <!-- Html5-QRCode para escaneo de codigos de barra y QR mediante camara -->
 <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<link rel="stylesheet" href="css/app.css?v=20261110-permissions-granular">
+<link rel="stylesheet" href="css/app.css?v=20261112-historial-mes-master-switch-1">
 
 
 
@@ -39,7 +39,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <script>try{var t=localStorage.getItem('wr-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="stylesheet" href="css/capa-web.css?v=20261111">
+<link rel="stylesheet" href="css/capa-web.css?v=20261112-historial-mes-master-switch-1">
 </head>
 <body>
 <div id="wr-splash"><i class="fas fa-boxes-stacked" style="font-size:2.6rem;color:#6ee7b7"></i><b>COMPRA</b><div class="wr-spin"></div></div>
@@ -96,7 +96,7 @@
         <small><i class="fas fa-code" style="margin-right:4px;"></i>Creador y desarrollador de PROGRAMA COMPRA</small>
       </div>
     </div>
-    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.8</div>
+    <div class="dev-footer-login">© 2026 PROGRAMA DE COMPRA · M.C. · Versión 3.0.10</div>
   </div>
 </div>
 
@@ -131,7 +131,7 @@
     </div>
     <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
       <a onclick="logout()" style="display:flex; align-items:center; gap:6px; font-size:0.74rem; color:#a7f3d0; cursor:pointer; font-weight:700; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background='rgba(239,68,68,0.15)'; this.style.color='#fca5a5'" onmouseout="this.style.background='rgba(255,255,255,0.04)'; this.style.color='#a7f3d0'"><i class="fas fa-sign-out-alt"></i> Salir</a>
-      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.8 • 2026</span>
+      <span style="font-size:0.6rem; color:rgba(167,243,208,0.55); font-weight:700;">v3.0.10 • 2026</span>
     </div>
     <div style="height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); margin:10px 0 2px;"></div>
     <!-- ABAJO: Info desarrollador -->
@@ -370,6 +370,8 @@
       <div class="toolbar">
         <div class="search-box"><i class="fas fa-search"></i><input type="text" id="hv-search" placeholder="Buscar por folio o solicitante..." oninput="filterHistorialVentas()"></div>
         <select id="hv-sort" onchange="filterHistorialVentas()" title="Organizar Historial de Compras">
+          <option value="folio-mes-actual">Folio: Mes actual, mayor a menor</option>
+          <option value="folio-desc">Folio: Todos los meses, mayor a menor</option>
           <option value="reciente">Fecha: M&aacute;s reciente primero</option>
           <option value="antiguo">Fecha: M&aacute;s antiguo primero</option>
           <option value="total-desc">Total: Mayor a menor</option>
@@ -971,10 +973,11 @@
 
 <div id="toast"></div>
 
-<script src="js/app.js?v=20261111-remision-dashboard-1"></script>
+<script src="js/app.js?v=20261112-historial-mes-master-switch-1"></script>
+<script src="js/almacenes.js?v=20261112-historial-mes-master-switch-1"></script>
 
-<script id="pro-ui-js" src="js/pro-ui.js?v=20261111"></script>
-<script src="js/capa-web.js?v=20261111-remision-dashboard-1"></script>
-<script src="js/modulos.js?v=20261111-remision-dashboard-1"></script>
+<script id="pro-ui-js" src="js/pro-ui.js?v=20261112-historial-mes-master-switch-1"></script>
+<script src="js/capa-web.js?v=20261112-historial-mes-master-switch-1"></script>
+<script src="js/modulos.js?v=20261112-historial-mes-master-switch-1"></script>
 </body>
 </html>

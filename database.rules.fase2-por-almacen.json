@@ -1,0 +1,42 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "compraPro": {
+      "rooms": {
+        "$room": {
+          ".read": "auth != null && (auth.token.almacen === 'ALM1' || auth.token.almacen === '*')",
+          ".write": "auth != null && (auth.token.almacen === 'ALM1' || auth.token.almacen === '*')"
+        }
+      },
+      "ext": {
+        "$room": {
+          ".read": "auth != null && (auth.token.almacen === 'ALM1' || auth.token.almacen === '*')",
+          ".write": "auth != null && (auth.token.almacen === 'ALM1' || auth.token.almacen === '*')"
+        }
+      },
+      "almacenes": {
+        "$room": {
+          "$alm": {
+            ".read": "auth != null && (auth.token.almacen === $alm || auth.token.almacen === '*')",
+            ".write": "auth != null && (auth.token.almacen === $alm || auth.token.almacen === '*')"
+          }
+        }
+      },
+      "shared": {
+        "$room": {
+          "folio": {
+            ".read": "auth != null && auth.token.almacen != null",
+            ".write": "auth != null && auth.token.almacen != null",
+            "sequence": {
+              ".validate": "newData.isNumber() && (!data.exists() || newData.val() >= data.val() || (root.child('compraPro/shared').child($room).child('folio/state/manual').val() === true && (!root.child('compraPro/shared').child($room).child('folio/sequenceRevision').exists() || root.child('compraPro/shared').child($room).child('folio/state/revision').val() > root.child('compraPro/shared').child($room).child('folio/sequenceRevision').val())))"
+            },
+            "sequenceRevision": {
+              ".validate": "newData.isNumber() && (!data.exists() || newData.val() >= data.val()) && root.child('compraPro/shared').child($room).child('folio/state/revision').exists() && newData.val() <= root.child('compraPro/shared').child($room).child('folio/state/revision').val()"
+            }
+          }
+        }
+      }
+    }
+  }
+}

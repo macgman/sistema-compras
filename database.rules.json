@@ -14,6 +14,30 @@
           ".read": "auth != null",
           ".write": "auth != null"
         }
+      },
+      "almacenes": {
+        "$room": {
+          "$alm": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      },
+      "shared": {
+        "$room": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "folio": {
+            ".read": "auth != null",
+            ".write": "auth != null",
+            "sequence": {
+              ".validate": "newData.isNumber() && (!data.exists() || newData.val() >= data.val() || (root.child('compraPro/shared').child($room).child('folio/state/manual').val() === true && (!root.child('compraPro/shared').child($room).child('folio/sequenceRevision').exists() || root.child('compraPro/shared').child($room).child('folio/state/revision').val() > root.child('compraPro/shared').child($room).child('folio/sequenceRevision').val())))"
+            },
+            "sequenceRevision": {
+              ".validate": "newData.isNumber() && (!data.exists() || newData.val() >= data.val()) && root.child('compraPro/shared').child($room).child('folio/state/revision').exists() && newData.val() <= root.child('compraPro/shared').child($room).child('folio/state/revision').val()"
+            }
+          }
+        }
       }
     }
   }
