@@ -1500,7 +1500,7 @@ function setupLoginHandlers() {
 async function init() {
   await openDatabase();
 
-  // COMPRA 3.0.6 inicia con catálogo limpio. Este reinicio se ejecuta
+  // COMPRA 3.0.10 inicia con catálogo limpio. Este reinicio se ejecuta
   // una sola vez en la base local de cada navegador para eliminar materiales
   // heredados de versiones anteriores. Después de importar un .json, los
   // materiales sí se conservan normalmente entre recargas.
@@ -4710,7 +4710,7 @@ function buildF361LegacyExcel(v) {
   <h2>COMPRA Pro</h2>
   <h3>Mario Alberto Chable García</h3>
   <p>Lic. en Informática · Desarrollador de software</p>
-  <span class="dev-version">VERSIÓN 3.0.7 · 2026</span>
+  <span class="dev-version">VERSIÓN 3.0.10 · 2026</span>
   <div class="dev-feature-grid">
     <span>📦 Inventario</span>
     <span>🧾 Compras</span>
