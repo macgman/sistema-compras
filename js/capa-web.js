@@ -202,10 +202,39 @@ function exportCrit(){if(typeof ExcelJS==='undefined'){toast('El módulo de Exce
 window.wrBell=function(){try{bell(false)}catch(e){}};
 setInterval(function(){try{badge(split())}catch(e){}},15000);
 /* ---- Inactividad, atajos y subir ---- */
-var idleT=null;function stopIdle(){clearTimeout(idleT);idleT=null}
-function armIdle(){stopIdle();var m=+pref('idle','30');if(m>0&&typeof currentUser!=='undefined'&&currentUser)idleT=setTimeout(function(){toast('Sesión cerrada por inactividad');if(typeof logout==='function')Promise.resolve(logout('Sesión cerrada automáticamente por inactividad.')).catch(function(){})},m*60000)}
-window.compraProStopIdle=stopIdle;
-['click','keydown','mousemove','touchstart','scroll'].forEach(function(ev){document.addEventListener(ev,function(){if(idleT)armIdle()},{passive:true})});
+var idleT=null,idleTick=null,IDLE_KEY='wr-last-activity';
+function stopIdle(){clearTimeout(idleT);idleT=null}
+function idleMin(){return +pref('idle','30')||0}
+function lastAct(){try{return +sessionStorage.getItem(IDLE_KEY)||0}catch(e){return 0}}
+function markAct(){try{sessionStorage.setItem(IDLE_KEY,String(Date.now()))}catch(e){}}
+function clearAct(){try{sessionStorage.removeItem(IDLE_KEY)}catch(e){}}
+function sessionOn(){return typeof currentUser!=='undefined'&&!!currentUser}
+/* La inactividad se mide con la hora real (no solo con un temporizador): así también
+   cuenta el tiempo con la PC suspendida, la pestaña en segundo plano o tras recargar. */
+function idleExpired(){var m=idleMin(),l=lastAct();return m>0&&sessionOn()&&l>0&&(Date.now()-l)>=m*60000}
+function idleLogout(){stopIdle();clearAct();toast('Sesión cerrada por inactividad','warning');
+  if(typeof logout==='function')Promise.resolve(logout('Sesión cerrada automáticamente por inactividad. Vuelve a escribir tu usuario y contraseña.')).catch(function(){});}
+function checkIdle(){if(idleExpired()){idleLogout();return true}return false}
+function armIdle(){stopIdle();var m=idleMin();if(m<=0||!sessionOn())return;
+  if(checkIdle())return;            /* si ya venció (p. ej. al recargar), cierra en vez de extender */
+  markAct();idleT=setTimeout(checkIdle,m*60000+500);}
+window.compraProStopIdle=function(){stopIdle();clearAct()};
+/* Al cerrar sesión se borra el registro para que un nuevo acceso empiece de cero */
+var origLogout=window.logout;
+if(typeof origLogout==='function')window.logout=function(){clearAct();return origLogout.apply(this,arguments)};
+/* Si no hay sesión guardada al cargar, no debe quedar registro viejo */
+try{if(typeof STORAGE_PREFIX!=='undefined'&&!sessionStorage.getItem(STORAGE_PREFIX+'session'))clearAct()}catch(e){}
+['click','keydown','mousemove','touchstart','scroll','wheel'].forEach(function(ev){document.addEventListener(ev,function(){
+  if(!sessionOn())return;
+  if(idleMin()<=0){if(Date.now()-lastAct()>=1000)markAct();return}   /* "Nunca": solo anota la actividad */
+  if(checkIdle())return;            /* una vez vencida, la actividad ya no extiende la sesión */
+  if(Date.now()-lastAct()<1000)return;
+  armIdle()},{passive:true,capture:true})});
+/* Revisión periódica y al volver a la pestaña o a la ventana */
+if(!idleTick)idleTick=setInterval(checkIdle,30000);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')checkIdle()});
+window.addEventListener('focus',checkIdle);
+window.addEventListener('pageshow',checkIdle);
 document.addEventListener('keydown',function(e){var t=e.target,typing=t&&/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||(t&&t.isContentEditable);
   if(e.altKey&&/^Digit[1-9]$/.test(e.code)){collect();var it=items[+e.code.slice(5)-1];if(it&&currentUser){e.preventDefault();it.f()}}
   else if(e.altKey&&e.code==='KeyT'){e.preventDefault();toggleTheme()}
