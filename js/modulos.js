@@ -398,15 +398,104 @@ function exportEntradas(){
 }
 function defaultUsers(){return(typeof users!=='undefined'?users:[]).filter(function(u){return u.active!==false&&Object.keys(DEF).some(function(k){return u.passHash===DEF[k]})})}
 function strength(p){var s=0;if(p.length>=8)s++;if(p.length>=12)s++;if(/[a-z]/.test(p)&&/[A-Z]/.test(p))s++;if(/\d/.test(p))s++;if(/[^A-Za-z0-9]/.test(p))s++;return s}
-function pwModal(forced){var m=mo(forced?'Debes cambiar tu contraseña':'Cambiar mi contraseña','<p style="font-size:.85rem;margin-bottom:10px">'+(forced?'Tu cuenta usa una contraseña por defecto conocida públicamente. Elige una nueva ahora.':'Usa al menos 8 caracteres combinando letras y números.')+'</p><div class="form-grid" style="grid-template-columns:1fr"><div class="form-group"><label>Contraseña actual</label><input type="password" id="pw-a"></div><div class="form-group"><label>Nueva contraseña</label><input type="password" id="pw-n"><div id="pw-bar" style="height:6px;border-radius:9px;background:#e5e7eb;margin-top:6px"><i style="display:block;height:100%;width:0;border-radius:9px"></i></div></div><div class="form-group"><label>Repetir nueva contraseña</label><input type="password" id="pw-r"></div></div><div style="text-align:right;margin-top:12px"><button class="btn btn-primary" id="pw-s">Cambiar contraseña</button></div>');
-  $('#pw-n').oninput=function(){var s=strength(this.value),i=$('#pw-bar i');i.style.width=s*20+'%';i.style.background=s<3?'#ef4444':s<4?'#f59e0b':'#059669'};
-  $('#pw-s').onclick=async function(){var a=$('#pw-a').value,n=$('#pw-n').value,r=$('#pw-r').value;
-    if(n.length<8||!/\d/.test(n)||!/[A-Za-z]/.test(n)){T('La nueva contraseña debe tener 8+ caracteres con letras y números','error');return}
-    if(n!==r){T('Las contraseñas no coinciden','error');return}if(n===a){T('La nueva debe ser distinta a la actual','error');return}
-    var u=users.filter(function(x){return String(x.id)===String(currentUser.id)||String(x.username).toLowerCase()===String(currentUser.username).toLowerCase()})[0];
-    if(!u){T('No se encontró tu cuenta en la lista de usuarios','error');return}
-    if((await hashSHA256(a))!==u.passHash){T('La contraseña actual es incorrecta','error');return}
-    u.passHash=await hashSHA256(n);u.updatedAt=Date.now();await broadcastFullSync();m.classList.remove('open');T('Contraseña actualizada. Úsala la próxima vez que inicies sesión.')}}
+function pwModal(forced){
+  var isMaster = !!(currentUser && currentUser.role === 'master');
+  var minLength = isMaster ? 12 : 8;
+  var helperText = isMaster
+    ? 'Usa al menos 12 caracteres combinando letras y números.'
+    : 'Usa al menos 8 caracteres combinando letras y números.';
+  var field = function(label, id, autocomplete) {
+    return '<div class="form-group"><label for="'+id+'">'+label+'</label>'+
+      '<div style="position:relative">'+
+      '<input type="password" id="'+id+'" autocomplete="'+autocomplete+'" maxlength="256" style="width:100%;padding-right:48px">'+
+      '<button type="button" class="pw-eye-toggle" data-pw-toggle="'+id+'" aria-label="Mostrar contraseña" title="Mostrar contraseña" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#64748b;padding:7px;cursor:pointer"><i class="fas fa-eye"></i></button>'+
+      '</div></div>';
+  };
+  var m=mo(forced?'Debes cambiar tu contraseña':'Cambiar mi contraseña',
+    '<p style="font-size:.85rem;margin-bottom:10px">'+(forced?'Tu cuenta requiere una contraseña personal. '+helperText:helperText)+'</p>'+
+    '<div class="form-grid" style="grid-template-columns:1fr">'+
+    field('Contraseña actual','pw-a','current-password')+
+    '<div class="form-group"><label for="pw-n">Nueva contraseña</label><div style="position:relative"><input type="password" id="pw-n" autocomplete="new-password" maxlength="256" style="width:100%;padding-right:48px"><button type="button" class="pw-eye-toggle" data-pw-toggle="pw-n" aria-label="Mostrar contraseña" title="Mostrar contraseña" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#64748b;padding:7px;cursor:pointer"><i class="fas fa-eye"></i></button></div>'+
+    '<div id="pw-bar" style="height:6px;border-radius:9px;background:#e5e7eb;margin-top:6px;overflow:hidden"><i style="display:block;height:100%;width:0;border-radius:9px"></i></div><small id="pw-strength-label" style="display:block;color:#64748b;margin-top:4px">Seguridad de la contraseña</small></div>'+
+    field('Repetir nueva contraseña','pw-r','new-password')+
+    '</div><div style="text-align:right;margin-top:12px"><button type="button" class="btn btn-primary" id="pw-s">Cambiar contraseña</button></div>');
+
+  Array.prototype.forEach.call(m.querySelectorAll('[data-pw-toggle]'),function(button){
+    button.onclick=function(){
+      var input=m.querySelector('#'+button.dataset.pwToggle);
+      if(!input)return;
+      var visible=input.type==='password';
+      input.type=visible?'text':'password';
+      button.innerHTML='<i class="fas '+(visible?'fa-eye-slash':'fa-eye')+'"></i>';
+      button.setAttribute('aria-label',visible?'Ocultar contraseña':'Mostrar contraseña');
+      button.title=visible?'Ocultar contraseña':'Mostrar contraseña';
+    };
+  });
+
+  $('#pw-n').oninput=function(){
+    var score=strength(this.value),bar=$('#pw-bar i'),label=$('#pw-strength-label');
+    bar.style.width=(score*20)+'%';
+    bar.style.background=score<3?'#ef4444':score<4?'#f59e0b':'#059669';
+    label.textContent=!this.value?'Seguridad de la contraseña':score<3?'Seguridad baja':score<4?'Seguridad media':'Seguridad buena';
+  };
+
+  $('#pw-s').onclick=async function(){
+    var button=$('#pw-s');
+    var current=$('#pw-a').value;
+    var next=$('#pw-n').value;
+    var repeat=$('#pw-r').value;
+    if(!current){T('Escribe tu contraseña actual','error');$('#pw-a').focus();return}
+    if(next.length<minLength||!/\d/.test(next)||!/[A-Za-z]/.test(next)){
+      T('La nueva contraseña debe tener '+minLength+'+ caracteres con letras y números','error');return
+    }
+    if(next!==repeat){T('Las contraseñas no coinciden','error');$('#pw-r').focus();return}
+    if(next===current){T('La nueva debe ser distinta a la actual','error');return}
+
+    button.disabled=true;
+    button.innerHTML='<i class="fas fa-spinner fa-spin"></i> Actualizando...';
+    try{
+      var auth=(typeof firebase!=='undefined'&&typeof firebaseApp!=='undefined'&&firebaseApp)
+        ? firebase.auth(firebaseApp) : null;
+      var firebaseUser=auth&&auth.currentUser;
+      if(!firebaseUser)throw new Error('La sesión de Firebase no está activa. Cierra sesión y vuelve a entrar.');
+
+      var idToken=await firebaseUser.getIdToken(true);
+      var apiBase=(typeof COMPRA_PRO_AUTH_API!=='undefined'&&COMPRA_PRO_AUTH_API)
+        ? COMPRA_PRO_AUTH_API : 'https://compra-pro-security.onrender.com';
+      var response=await fetch(apiBase+'/auth/change-password',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+        body:JSON.stringify({currentPassword:current,newPassword:next}),
+        cache:'no-store'
+      });
+      var result={};
+      try{result=await response.json()}catch(_){}
+      if(!response.ok||!result.ok)throw new Error(result.error||'El servidor no pudo cambiar la contraseña.');
+
+      // Mantiene la copia local del usuario alineada con el hash que el
+      // servidor acaba de guardar en Firebase, evitando que una sincronización
+      // posterior restaure la contraseña anterior.
+      if(!isMaster&&typeof users!=='undefined'&&Array.isArray(users)){
+        var localUser=users.find(function(x){
+          return String(x.username||'').toLowerCase()===String(currentUser.username||'').toLowerCase();
+        });
+        if(localUser){
+          localUser.passHash=await hashSHA256(next);
+          delete localUser.pass;
+          localUser.updatedAt=Number(result.updatedAt)||Date.now();
+          if(typeof saveLocalData==='function')await saveLocalData();
+        }
+      }
+      m.classList.remove('open');
+      T(isMaster?'Contraseña MASTER actualizada. Úsala la próxima vez que inicies sesión.':'Contraseña actualizada correctamente. Úsala la próxima vez que inicies sesión.','success');
+    }catch(error){
+      T(error&&error.message?error.message:'No se pudo actualizar la contraseña.','error');
+      button.disabled=false;
+      button.innerHTML='Cambiar contraseña';
+    }
+  };
+}
+window.wrChangePw=function(){pwModal(false)};
 window.wrChangePw=function(){pwModal(false)};
 function rSec(){var s=$('#section-seguridad');var d=defaultUsers();
   s.innerHTML=card('<i class="fas fa-shield-halved" style="color:#059669"></i> Seguridad','Auditoría rápida y herramientas de cuentas. Solo visible para administradores.')+
