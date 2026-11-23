@@ -117,6 +117,7 @@
     <a onclick="showSection('ventas')" id="nav-ventas"><i class="fas fa-shopping-cart"></i><span>Nueva Compra</span></a>
     <a onclick="showSection('historial-ventas')" id="nav-historial-ventas"><i class="fas fa-history"></i><span>Historial Compras</span></a>
     <a onclick="openF361BatchModal()" id="nav-imprimir-folios"><i class="fas fa-print"></i><span>Imprimir folios</span></a>
+    <a onclick="openEtiquetasModal()" id="nav-imprimir-etiquetas"><i class="fas fa-tags"></i><span>Imprimir etiquetas</span></a>
     <a onclick="showSection('ventas-material')" id="nav-ventas-material"><i class="fas fa-chart-line"></i><span>Ventas por Material</span></a>
     <div class="nav-group">Control</div>
     <a onclick="showSection('movimientos')" id="nav-movimientos"><i class="fas fa-exchange-alt"></i><span>Movimientos</span></a>
@@ -217,6 +218,7 @@
         <button class="btn btn-outline admin-only" onclick="document.getElementById('bulk-excel-input').click()"><i class="fas fa-file-import"></i> Carga Masiva Excel</button>
         <button class="btn btn-success" onclick="openReportModal()"><i class="fas fa-chart-column"></i> Reportes Excel</button>
         <button class="btn btn-excel361" onclick="openF361BatchModal()"><i class="fas fa-folder-tree"></i> Imprimir folios</button>
+        <button class="btn btn-outline" onclick="openEtiquetasModal()"><i class="fas fa-tags"></i> Imprimir etiquetas</button>
       </div>
       <div class="table-wrap">
         <table class="inventario-table"><thead><tr><th>Clave</th><th>Descripci&oacute;n</th><th>Unidad</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="admin-only">Acciones</th></tr></thead><tbody id="inv-tbody"></tbody></table>
@@ -979,5 +981,6 @@
 <script id="pro-ui-js" src="js/pro-ui.js?v=20261112-historial-mes-master-switch-1"></script>
 <script src="js/capa-web.js?v=20261113-inactividad-1"></script>
 <script src="js/modulos.js?v=20261113-inactividad-1"></script>
+<script src="js/etiquetas.js?v=20261122-etiquetas-4"></script>
 </body>
 </html>
